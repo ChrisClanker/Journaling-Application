@@ -24,8 +24,8 @@ Tasks identified from reviewing the README.md and codebase for the Django Journa
 
 ### 4. ~~Add tests for new functionality~~ ✅
 **Status:** COMPLETED
-**Commits:** 84e602c, ca016fc
-**Summary:** Added 19 new tests across 5 test classes covering goal edit/delete, journal edit/delete, and ownership verification. Total test count: 64 tests, all passing.
+**Commits:** 84e602c, ca016fc, bf5d410
+**Summary:** Added 26 new tests across 7 test classes covering goal edit/delete, journal edit/delete, ownership verification, USE_AI disabled mode, and JournalForm conditional fields. Total test count: 71 tests, all passing.
 
 ### 5. ~~Add goal edit, update, and delete functionality~~ ✅
 **Status:** COMPLETED
@@ -46,6 +46,17 @@ Tasks identified from reviewing the README.md and codebase for the Django Journa
 **Status:** COMPLETED
 **Commit:** 84e602c
 **Summary:** Removed outdated SQLite instructions. Added PostgreSQL setup documentation. Consolidated environment variable documentation into a single comprehensive section. Organized Signal setup into proper subsection.
+
+### 13. ~~Add USE_AI environment variable (default: False) to disable AI features~~ ✅
+**Status:** COMPLETED
+**Commits:** (latest batch)
+**Summary:** Added `USE_AI` setting to settings.py that defaults to `False`. When disabled:
+- `journal_question` view redirects to `/journals/`
+- Journal titles fall back to `"Journal Entry - {date}"` format
+- Mood selection uses keyword checkboxes (24 mood options) instead of AI extraction
+- "Ask A Question" button is hidden from the journal index
+- Added 7 dedicated tests for USE_AI behaviors
+- Added comprehensive local development instructions to README.md
 
 ---
 
@@ -89,16 +100,18 @@ Tasks identified from reviewing the README.md and codebase for the Django Journa
 
 | Metric | Value |
 |--------|-------|
-| Total Tests | 64 |
-| Passing | 64 |
+| Total Tests | 71 |
+| Passing | 71 |
 | Failing | 0 |
-| Test Classes | 18 |
+| Test Classes | 20 |
 | Last Run | 2026-04-01 |
 
 ## Commit History
 
 | Commit | Description |
 |--------|-------------|
-| 4eec386 | Fix created_at fields, add Ollama config, logout view, and goal ordering |
-| 84e602c | Add goal and journal edit/delete functionality with tests and updated README |
+| bf5d410 | Add tests for USE_AI disabled mode and JournalForm conditional fields |
+| (latest) | Add USE_AI environment variable, mood keyword selection, local dev docs |
 | ca016fc | Fix test coverage and consolidate README env var docs |
+| 84e602c | Add goal and journal edit/delete functionality with tests and updated README |
+| 4eec386 | Fix created_at fields, add Ollama config, logout view, and goal ordering |
