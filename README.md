@@ -43,9 +43,32 @@ _Note: The Title and Mood tags are completely AI generated_
 ## Installation and Usage Instructions
 ### Running Locally (Development)
 
-If you want to run the journaling app locally without Docker, follow these steps:
+#### Quick Start
 
-#### 1. Set up a virtual environment
+The easiest way to get up and running is to use the included `start.sh` script. It will automatically:
+
+1. Create a `.env` file with a generated `SECRET_KEY` (if one doesn't exist)
+2. Set up a Python virtual environment
+3. Install dependencies
+4. Run database migrations
+5. Prompt you to create an admin user (if none exists)
+6. Start the development server
+
+```bash
+./start.sh
+```
+
+The app will be available at http://localhost:8000/
+
+**Script options:**
+- `./start.sh --setup-only` — Perform setup steps without starting the server
+- `./start.sh --help` — Show usage information
+
+#### Manual Setup
+
+If you prefer to run each step manually:
+
+##### 1. Set up a virtual environment
 
 ```bash
 cd Journaling-Application
@@ -54,7 +77,7 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-#### 2. Create a .env file
+##### 2. Create a .env file
 
 Create a `.env` file in the project root with the following values:
 
@@ -70,7 +93,7 @@ WEBAPP_USERNAME=joe
 - `USE_AI`: Set to `False` to run without AI/Ollama (default). Set to `True` if you have Ollama running locally.
 - `WEBAPP_USERNAME`: The username for your journal account
 
-#### 3. Initialize the database
+##### 3. Initialize the database
 
 ```bash
 cd journal_project
@@ -78,16 +101,14 @@ cd journal_project
 ../venv/bin/python manage.py createsuperuser
 ```
 
-#### 4. Run the development server
+##### 4. Run the development server
 
 ```bash
 cd journal_project
 ../venv/bin/python manage.py runserver
 ```
 
-The app will be available at http://localhost:8000/
-
-#### 5. (Optional) Enable AI features
+##### 5. (Optional) Enable AI features
 
 If you want to use the AI features locally:
 1. Install [Ollama](https://ollama.com/) and start it
