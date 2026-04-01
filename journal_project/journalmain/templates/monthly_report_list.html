@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reports - My Journal</title>
+    <title>Monthly Reports - My Journal</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <style>
@@ -36,47 +36,40 @@
 
 <div class="container mt-5">
     {% include 'nav.html' %}
-    <h1 class="mb-4">Reports</h1>
-    <a href="{% url 'monthly_report_list' %}" class="btn btn-info mb-3">Monthly Reports</a>
+    <h1 class="mb-4">Monthly Reports</h1>
+    <a href="{% url 'report_list' %}" class="btn btn-secondary mb-3">All Reports</a>
 
-    {% if reports %}
+    {% if months %}
         <table class="table table-striped">
             <thead>
                 <tr>
-                    <th>Title</th>
-                    <th>Type</th>
+                    <th>Month</th>
+                    <th>Status</th>
                     <th>Action</th>
                 </tr>
             </thead>
             <tbody>
-                {% for report in reports %}
+                {% for m in months %}
                 <tr>
-                    <td>{{ report.title }}</td>
-                    <td>{{ report.get_type_display }}</td>
+                    <td>{{ m.month_name }} {{ m.year }}</td>
                     <td>
-                        <a href="{% url 'report_detail' report.id %}" class="btn btn-primary">View</a>
+                        {% if m.has_report %}
+                            <span class="badge bg-success">Generated</span>
+                        {% else %}
+                            <span class="badge bg-secondary">Not generated</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{% url 'generate_monthly_report' m.year m.month %}" class="btn btn-primary btn-sm">
+                            {% if m.has_report %}View{% else %}Generate{% endif %}
+                        </a>
                     </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
-
-        <!-- Pagination -->
-        {% if page_obj.has_other_pages %}
-        <nav>
-            <ul class="pagination justify-content-center">
-                {% if page_obj.has_previous %}
-                    <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}">Previous</a></li>
-                {% endif %}
-                <li class="page-item active"><span class="page-link">{{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span></li>
-                {% if page_obj.has_next %}
-                    <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}">Next</a></li>
-                {% endif %}
-            </ul>
-        </nav>
-        {% endif %}
     {% else %}
-        <p class="text-muted">No reports yet. Generate weekly reports using the management command.</p>
+        <p class="text-muted">No journal entries yet. Start journaling to generate monthly reports!</p>
     {% endif %}
 </div>
 

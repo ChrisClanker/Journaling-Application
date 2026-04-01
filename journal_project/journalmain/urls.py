@@ -33,4 +33,8 @@ urlpatterns = [
     path('profile/password-change-done/', PasswordChangeDoneView.as_view(
         template_name='password_change_done.html'
     ), name='password_change_done'),
+    path('reports/monthly/', views.monthly_report_list, name='monthly_report_list'),
+    path('reports/monthly/<int:year>/<int:month>/', views.generate_monthly_report, name='generate_monthly_report'),
+    path('on-this-day/', views.on_this_day, name='on_this_day'),
+    path('mood-trends/', views.mood_trends, name='mood_trends'),
 ]

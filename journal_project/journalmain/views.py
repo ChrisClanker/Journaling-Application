@@ -194,6 +194,15 @@ def dashboard(request):
     # Get bookmarked entries for quick access
     bookmarked = entries.filter(bookmarked=True)[:5]
 
+    # On This Day: entries from same month/day in previous years
+    today = timezone.now().date()
+    on_this_day_entries = JournalEntry.objects.filter(
+        user=request.user,
+        date__month=today.month,
+        date__day=today.day,
+        date__year__lt=today.year
+    ).order_by('-date')[:2]
+
     context = {
         'total_entries': total_entries,
         'current_streak': current_streak,
@@ -201,6 +210,7 @@ def dashboard(request):
         'most_common_mood': most_common_mood,
         'recent_entries': recent_entries,
         'bookmarked_entries': bookmarked,
+        'on_this_day_entries': on_this_day_entries,
         'use_ai': settings.USE_AI,
     }
     return render(request, 'dashboard.html', context)
@@ -676,4 +686,236 @@ def profile(request):
     """Display user profile information."""
     return render(request, 'profile.html', {
         'user': request.user,
+    })
+
+
+@login_required
+def generate_monthly_report(request, year, month):
+    """Generate a monthly report for the given year/month."""
+    from datetime import date as date_type
+    import calendar
+
+    # Get entries for the month
+    start = date_type(year, month, 1)
+    if month == 12:
+        end = date_type(year + 1, 1, 1) - timedelta(days=1)
+    else:
+        end = date_type(year, month + 1, 1) - timedelta(days=1)
+
+    entries = JournalEntry.objects.filter(
+        user=request.user,
+        date__gte=start,
+        date__lte=end
+    ).order_by('date')
+
+    if not entries.exists():
+        return render(request, 'report_empty.html', {'year': year, 'month': month})
+
+    # Check if report already exists
+    month_name = calendar.month_name[month]
+    existing = Report.objects.filter(
+        user=request.user,
+        type='m',
+        title=f'Monthly Report: {month_name} {year}'
+    )
+    if existing.exists():
+        report = existing.first()
+    else:
+        # Generate summary
+        content = f"# Monthly Report: {month_name} {year}\n\n"
+        content += f"You wrote {entries.count()} journal entries this month.\n\n"
+
+        # Mood summary
+        all_moods = []
+        for entry in entries:
+            if entry.mood:
+                try:
+                    moods = json.loads(entry.mood.replace("'", '"'))
+                    all_moods.extend(moods)
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+
+        if all_moods:
+            content += "## Mood Summary\n\n"
+            for mood, count in Counter(all_moods).most_common(5):
+                content += f"- **{mood}**: {count} time(s)\n"
+            content += "\n"
+
+        # Word count
+        total_words = sum(len(e.content.split()) for e in entries if e.content)
+        content += f"## Writing Stats\n\n"
+        content += f"- Total words written: {total_words}\n"
+        content += f"- Average words per entry: {total_words // max(entries.count(), 1)}\n\n"
+
+        # Tag summary
+        all_tags = Counter()
+        for entry in entries:
+            for tag in entry.tags.all():
+                all_tags[tag.name] += 1
+        if all_tags:
+            content += "## Top Tags\n\n"
+            for tag, count in all_tags.most_common(5):
+                content += f"- **{tag}**: {count} entries\n"
+            content += "\n"
+
+        # Entries summary
+        content += "## Entries\n\n"
+        for entry in entries:
+            title = entry.title or f"Entry for {entry.date}"
+            content += f"### {title} ({entry.date})\n\n"
+            if entry.content:
+                preview = entry.content[:200] + "..." if len(entry.content) > 200 else entry.content
+                content += f"{preview}\n\n"
+
+        report = Report.objects.create(
+            user=request.user,
+            title=f'Monthly Report: {month_name} {year}',
+            type='m',
+            content=content,
+        )
+
+        for entry in entries:
+            entry.month_report = report
+            entry.save()
+
+    return render(request, 'report_detail.html', {'report_entry': report})
+
+
+@login_required
+def monthly_report_list(request):
+    """List all months that have journal entries, with report generation links."""
+    entries = JournalEntry.objects.filter(user=request.user)
+    if not entries.exists():
+        return render(request, 'monthly_report_list.html', {'months': []})
+
+    # Get unique year-month combinations
+    from django.db.models.functions import ExtractYear, ExtractMonth
+    months_data = entries.annotate(
+        year=ExtractYear('date'),
+        month=ExtractMonth('date')
+    ).values('year', 'month').distinct().order_by('-year', '-month')
+
+    # Check which months already have reports
+    existing_reports = Report.objects.filter(user=request.user, type='m')
+    existing_set = set()
+    for r in existing_reports:
+        # Parse title "Monthly Report: January 2024"
+        parts = r.title.replace('Monthly Report: ', '').split()
+        if len(parts) == 2:
+            month_name = parts[0]
+            try:
+                year = int(parts[1])
+                month_num = list(calendar.month_name).index(month_name)
+                existing_set.add((year, month_num))
+            except (ValueError, ValueError):
+                pass
+
+    months = []
+    for md in months_data:
+        year, month = md['year'], md['month']
+        months.append({
+            'year': year,
+            'month': month,
+            'month_name': calendar.month_name[month],
+            'has_report': (year, month) in existing_set,
+        })
+
+    return render(request, 'monthly_report_list.html', {'months': months})
+
+
+@login_required
+def on_this_day(request):
+    """Show journal entries from this date in previous years."""
+    today = timezone.now().date()
+
+    # Also allow viewing for a specific date
+    target_month = request.GET.get('month', today.month)
+    target_day = request.GET.get('day', today.day)
+    try:
+        target_month = int(target_month)
+        target_day = int(target_day)
+    except (ValueError, TypeError):
+        target_month = today.month
+        target_day = today.day
+
+    # When looking at today's date, exclude current year entries
+    if target_month == today.month and target_day == today.day:
+        entries = JournalEntry.objects.filter(
+            user=request.user,
+            date__month=target_month,
+            date__day=target_day,
+            date__year__lt=today.year,
+        ).order_by('-date')
+    else:
+        entries = JournalEntry.objects.filter(
+            user=request.user,
+            date__month=target_month,
+            date__day=target_day,
+        ).order_by('-date')
+
+    return render(request, 'on_this_day.html', {
+        'entries': entries,
+        'target_month': target_month,
+        'target_day': target_day,
+        'today': today,
+    })
+
+
+@login_required
+def mood_trends(request):
+    """Display mood trends over time."""
+    entries = JournalEntry.objects.filter(user=request.user).exclude(mood__isnull=True).order_by('date')
+
+    if not entries.exists():
+        return render(request, 'mood_trends.html', {'weeks': [], 'all_moods': []})
+
+    # Group entries by week
+    weeks = {}
+    for entry in entries:
+        # ISO week number
+        iso_cal = entry.date.isocalendar()
+        week_key = f"{iso_cal[0]}-W{iso_cal[1]:02d}"
+        if week_key not in weeks:
+            weeks[week_key] = {'week': week_key, 'moods': Counter(), 'entries': 0}
+        weeks[week_key]['entries'] += 1
+        if entry.mood:
+            try:
+                moods = json.loads(entry.mood.replace("'", '"'))
+                weeks[week_key]['moods'].update(moods)
+            except (json.JSONDecodeError, AttributeError):
+                pass
+
+    # Convert to sorted list with prepared mood bar data
+    week_list = sorted(weeks.values(), key=lambda w: w['week'])
+
+    # Find max count for scaling bar widths
+    max_count = 1
+    for w in week_list:
+        for mood, count in w['moods'].most_common(3):
+            if count > max_count:
+                max_count = count
+
+    # Prepare top_moods with color and width for each week
+    for w in week_list:
+        top_moods = []
+        for mood, count in w['moods'].most_common(3):
+            width = max(40, int((count / max_count) * 200))
+            top_moods.append({
+                'mood': mood,
+                'count': count,
+                'width': width,
+                'color': mood_heatmap_colors.get(mood, '#6c757d'),
+            })
+        w['top_moods'] = top_moods
+
+    # Get all unique moods
+    all_moods = set()
+    for w in week_list:
+        all_moods.update(w['moods'].keys())
+    all_moods = sorted(all_moods)
+
+    return render(request, 'mood_trends.html', {
+        'weeks': week_list,
+        'all_moods': all_moods,
+        'mood_colors': mood_heatmap_colors,
     })

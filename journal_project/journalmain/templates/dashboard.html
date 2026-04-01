@@ -145,6 +145,29 @@
         </div>
     </div>
     {% endif %}
+
+    <!-- On This Day Widget -->
+    <div class="mb-4">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h3 class="mb-0">On This Day</h3>
+            <a href="{% url 'on_this_day' %}" class="btn btn-outline-primary btn-sm">View All</a>
+        </div>
+        {% if on_this_day_entries %}
+            <div class="list-group">
+                {% for entry in on_this_day_entries %}
+                <a href="{% url 'journal_detail' entry.id %}" class="list-group-item list-group-item-action">
+                    <div class="d-flex w-100 justify-content-between">
+                        <h5 class="mb-1">{{ entry.title|default:"Untitled" }}</h5>
+                        <small>{{ entry.date }}</small>
+                    </div>
+                    <p class="mb-1">{{ entry.content|truncatewords:20 }}</p>
+                </a>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="text-muted">No entries from this date in previous years. Keep journaling!</p>
+        {% endif %}
+    </div>
 </div>
 
 <script>

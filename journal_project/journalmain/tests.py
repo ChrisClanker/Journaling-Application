@@ -2320,3 +2320,542 @@ class NoDebugPrintTest(TestCase):
             # Check for print() calls
             if re.match(r'^print\s*\(', stripped):
                 self.fail(f'Found print statement at line {i}: {stripped}')
+
+
+# ============================================================
+# Tests for Phase 2 Feature 1: Monthly Report Generation
+# ============================================================
+
+class MonthlyReportCommandTest(TestCase):
+    """Tests for the --monthly flag on generate_weekly_report command."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_monthly_command_creates_report(self):
+        """Command should create a monthly report when entries exist."""
+        from django.core.management import call_command
+        from io import StringIO
+        from datetime import date as date_type
+        entry = JournalEntry.objects.create(user=self.user, content='Entry 1')
+        entry.date = date_type(2024, 3, 15)
+        entry.save()
+        out = StringIO()
+        call_command('generate_weekly_report', '--monthly', stdout=out)
+        self.assertEqual(Report.objects.filter(user=self.user, type='m').count(), 1)
+        report = Report.objects.filter(user=self.user, type='m').first()
+        self.assertIn('Monthly Report', report.title)
+        self.assertIn('March', report.title)
+
+    def test_monthly_command_skips_when_no_entries(self):
+        """Command should skip users with no entries."""
+        from django.core.management import call_command
+        from io import StringIO
+        out = StringIO()
+        call_command('generate_weekly_report', '--monthly', stdout=out)
+        self.assertEqual(Report.objects.filter(type='m').count(), 0)
+
+    def test_monthly_command_skips_duplicate(self):
+        """Command should skip if monthly report already exists."""
+        from django.core.management import call_command
+        from io import StringIO
+        from datetime import date as date_type
+        entry = JournalEntry.objects.create(user=self.user, content='Entry')
+        entry.date = date_type(2024, 3, 15)
+        entry.save()
+        out = StringIO()
+        call_command('generate_weekly_report', '--monthly', stdout=out)
+        self.assertEqual(Report.objects.filter(user=self.user, type='m').count(), 1)
+        out2 = StringIO()
+        call_command('generate_weekly_report', '--monthly', stdout=out2)
+        self.assertEqual(Report.objects.filter(user=self.user, type='m').count(), 1)
+        self.assertIn('already exists', out2.getvalue())
+
+    def test_monthly_command_links_entries(self):
+        """Command should link journal entries to monthly report."""
+        from django.core.management import call_command
+        from datetime import date as date_type
+        entry = JournalEntry.objects.create(user=self.user, content='Entry')
+        entry.date = date_type(2024, 3, 15)
+        entry.save()
+        call_command('generate_weekly_report', '--monthly')
+        entry.refresh_from_db()
+        self.assertIsNotNone(entry.month_report)
+
+    def test_monthly_command_with_user_flag(self):
+        """Command should only generate for specified user."""
+        from django.core.management import call_command
+        from io import StringIO
+        from datetime import date as date_type
+        other_user = User.objects.create_user(username='other', password='testpass123')
+        e1 = JournalEntry.objects.create(user=self.user, content='My entry')
+        e1.date = date_type(2024, 3, 15)
+        e1.save()
+        e2 = JournalEntry.objects.create(user=other_user, content='Other entry')
+        e2.date = date_type(2024, 3, 15)
+        e2.save()
+        out = StringIO()
+        call_command('generate_weekly_report', '--monthly', user='testuser', stdout=out)
+        self.assertEqual(Report.objects.filter(user=self.user, type='m').count(), 1)
+        self.assertEqual(Report.objects.filter(user=other_user, type='m').count(), 0)
+
+    def test_monthly_report_content_has_entry_count(self):
+        """Generated monthly report should include entry count."""
+        from django.core.management import call_command
+        from datetime import date as date_type
+        for i in range(3):
+            entry = JournalEntry.objects.create(user=self.user, content=f'Entry {i}')
+            entry.date = date_type(2024, 3, 1 + i)
+            entry.save()
+        call_command('generate_weekly_report', '--monthly')
+        report = Report.objects.filter(user=self.user, type='m').first()
+        self.assertIn('3 journal entries', report.content)
+
+    def test_monthly_report_content_has_mood_summary(self):
+        """Generated monthly report should include mood summary."""
+        from django.core.management import call_command
+        from datetime import date as date_type
+        e1 = JournalEntry.objects.create(user=self.user, content='Happy', mood='["happy"]')
+        e1.date = date_type(2024, 3, 1)
+        e1.save()
+        e2 = JournalEntry.objects.create(user=self.user, content='Happy again', mood='["happy"]')
+        e2.date = date_type(2024, 3, 2)
+        e2.save()
+        call_command('generate_weekly_report', '--monthly')
+        report = Report.objects.filter(user=self.user, type='m').first()
+        self.assertIn('Mood Summary', report.content)
+        self.assertIn('happy', report.content)
+
+    def test_monthly_report_content_has_writing_stats(self):
+        """Generated monthly report should include writing stats."""
+        from django.core.management import call_command
+        from datetime import date as date_type
+        entry = JournalEntry.objects.create(user=self.user, content='Hello world this is a test')
+        entry.date = date_type(2024, 3, 1)
+        entry.save()
+        call_command('generate_weekly_report', '--monthly')
+        report = Report.objects.filter(user=self.user, type='m').first()
+        self.assertIn('Writing Stats', report.content)
+        self.assertIn('Total words written', report.content)
+
+
+class MonthlyReportViewTest(TestCase):
+    """Tests for the monthly report views."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_monthly_report_list_requires_login(self):
+        response = self.client.get('/reports/monthly/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_monthly_report_list_loads(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/reports/monthly/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Monthly Reports')
+
+    def test_monthly_report_list_empty(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/reports/monthly/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No journal entries yet')
+
+    def test_monthly_report_list_shows_months(self):
+        from datetime import date as date_type
+        entry = JournalEntry.objects.create(user=self.user, content='Entry')
+        entry.date = date_type(2024, 3, 15)
+        entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/reports/monthly/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'March')
+        self.assertContains(response, '2024')
+
+    def test_monthly_report_list_only_shows_own_months(self):
+        from datetime import date as date_type
+        other_user = User.objects.create_user(username='other', password='testpass123')
+        entry = JournalEntry.objects.create(user=other_user, content='Other')
+        entry.date = date_type(2024, 3, 15)
+        entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/reports/monthly/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No journal entries yet')
+
+    def test_generate_monthly_report_requires_login(self):
+        response = self.client.get('/reports/monthly/2024/3/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_generate_monthly_report_creates_report(self):
+        from datetime import date as date_type
+        entry = JournalEntry.objects.create(user=self.user, content='March entry', title='March Entry')
+        entry.date = date_type(2024, 3, 15)
+        entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/reports/monthly/2024/3/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Monthly Report')
+        self.assertEqual(Report.objects.filter(user=self.user, type='m').count(), 1)
+
+    def test_generate_monthly_report_returns_existing(self):
+        from datetime import date as date_type
+        entry = JournalEntry.objects.create(user=self.user, content='March entry')
+        entry.date = date_type(2024, 3, 15)
+        entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/reports/monthly/2024/3/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Report.objects.filter(user=self.user, type='m').count(), 1)
+        # Run again - should return existing
+        response = self.client.get('/reports/monthly/2024/3/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Report.objects.filter(user=self.user, type='m').count(), 1)
+
+    def test_generate_monthly_report_no_entries(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/reports/monthly/2024/3/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No journal entries found')
+
+    def test_generate_monthly_report_only_shows_own_entries(self):
+        from datetime import date as date_type
+        other_user = User.objects.create_user(username='other', password='testpass123')
+        entry = JournalEntry.objects.create(user=other_user, content='Other entry')
+        entry.date = date_type(2024, 3, 15)
+        entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/reports/monthly/2024/3/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No journal entries found')
+
+    def test_monthly_report_list_shows_has_report_indicator(self):
+        from datetime import date as date_type
+        entry = JournalEntry.objects.create(user=self.user, content='Entry')
+        entry.date = date_type(2024, 3, 15)
+        entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        # First generate the report
+        self.client.get('/reports/monthly/2024/3/')
+        # Then check the list shows it as generated
+        response = self.client.get('/reports/monthly/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Generated')
+
+
+# ============================================================
+# Tests for Phase 2 Feature 2: On This Day / Memory Feature
+# ============================================================
+
+class OnThisDayViewTest(TestCase):
+    """Tests for the On This Day view."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_on_this_day_requires_login(self):
+        response = self.client.get('/on-this-day/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_on_this_day_loads(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/on-this-day/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'On This Day')
+
+    def test_on_this_day_shows_past_entries(self):
+        from datetime import date as date_type
+        today = timezone.now().date()
+        # Create entry from 2 years ago on same date
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Entry from 2 years ago', title='Memory'
+        )
+        entry.date = date_type(today.year - 2, today.month, today.day)
+        entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/on-this-day/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Memory')
+
+    def test_on_this_day_does_not_show_today(self):
+        """Entries from today should not appear in On This Day."""
+        today = timezone.now().date()
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Today entry', title='Today'
+        )
+        entry.date = today
+        entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/on-this-day/')
+        self.assertEqual(response.status_code, 200)
+        # The query filters date__year__lt=today.year, so today's entries should not appear
+        self.assertNotContains(response, 'Today entry')
+
+    def test_on_this_day_custom_date(self):
+        """Should be able to look up a custom date via query params."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='July 4th entry', title='Independence Day'
+        )
+        entry.date = timezone.now().date().replace(month=7, day=4)
+        entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/on-this-day/', {'month': 7, 'day': 4})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Independence Day')
+
+    def test_on_this_day_no_entries(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/on-this-day/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No journal entries found')
+
+    def test_on_this_day_only_shows_own_entries(self):
+        from datetime import date as date_type
+        other_user = User.objects.create_user(username='other', password='testpass123')
+        today = timezone.now().date()
+        entry = JournalEntry.objects.create(user=other_user, content='Other', title='Other Memory')
+        entry.date = date_type(today.year - 1, today.month, today.day)
+        entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/on-this-day/')
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'Other Memory')
+
+    def test_on_this_day_has_date_picker(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/on-this-day/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Look up another date')
+
+    def test_on_this_day_orders_by_date_desc(self):
+        """Entries should be ordered newest first."""
+        from datetime import date as date_type
+        today = timezone.now().date()
+        e1 = JournalEntry.objects.create(user=self.user, content='Older', title='Older Entry')
+        e1.date = date_type(today.year - 3, today.month, today.day)
+        e1.save()
+        e2 = JournalEntry.objects.create(user=self.user, content='Newer', title='Newer Entry')
+        e2.date = date_type(today.year - 1, today.month, today.day)
+        e2.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/on-this-day/')
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode('utf-8')
+        newer_pos = content.find('Newer Entry')
+        older_pos = content.find('Older Entry')
+        self.assertLess(newer_pos, older_pos)
+
+
+class DashboardOnThisDayTest(TestCase):
+    """Tests for the On This Day widget on the dashboard."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_dashboard_shows_on_this_day_section(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'On This Day')
+
+    def test_dashboard_shows_on_this_day_entries(self):
+        from datetime import date as date_type
+        today = timezone.now().date()
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Memory content', title='Past Memory'
+        )
+        entry.date = date_type(today.year - 1, today.month, today.day)
+        entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Past Memory')
+
+    def test_dashboard_shows_on_this_day_link(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'View All')
+
+    def test_dashboard_on_this_day_only_shows_own(self):
+        from datetime import date as date_type
+        other_user = User.objects.create_user(username='other', password='testpass123')
+        today = timezone.now().date()
+        entry = JournalEntry.objects.create(user=other_user, content='Other', title='Other Memory')
+        entry.date = date_type(today.year - 1, today.month, today.day)
+        entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/')
+        self.assertNotContains(response, 'Other Memory')
+
+    def test_dashboard_on_this_day_limits_to_2(self):
+        """Dashboard should show at most 2 on-this-day entries."""
+        from datetime import date as date_type
+        today = timezone.now().date()
+        for i in range(5):
+            entry = JournalEntry.objects.create(user=self.user, content=f'Memory {i}', title=f'Memory {i}')
+            entry.date = date_type(today.year - (i + 1), today.month, today.day)
+            entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
+        # Check that the context has exactly 2 on_this_day_entries
+        self.assertEqual(len(response.context['on_this_day_entries']), 2)
+
+
+# ============================================================
+# Tests for Phase 2 Feature 3: Mood Trend Chart
+# ============================================================
+
+class MoodTrendsViewTest(TestCase):
+    """Tests for the mood trends view."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_mood_trends_requires_login(self):
+        response = self.client.get('/mood-trends/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_mood_trends_loads(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/mood-trends/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Mood Trends')
+
+    def test_mood_trends_no_data(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/mood-trends/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No mood data available')
+
+    def test_mood_trends_shows_weeks(self):
+        entry = JournalEntry.objects.create(user=self.user, content='Entry', mood='["happy"]')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/mood-trends/')
+        self.assertEqual(response.status_code, 200)
+        # Should show the week data
+        self.assertContains(response, 'W')
+
+    def test_mood_trends_groups_by_week(self):
+        """Multiple entries in the same week should be grouped."""
+        from datetime import date as date_type
+        today = timezone.now().date()
+        JournalEntry.objects.create(user=self.user, content='Entry 1', mood='["happy"]', date=today)
+        JournalEntry.objects.create(user=self.user, content='Entry 2', mood='["happy", "excited"]', date=today - timedelta(days=1))
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/mood-trends/')
+        self.assertEqual(response.status_code, 200)
+        # Should show the week data with capitalized mood names
+        self.assertContains(response, 'Happy')
+
+    def test_mood_trends_shows_top_3_moods(self):
+        """Should only show top 3 moods per week."""
+        entry = JournalEntry.objects.create(
+            user=self.user,
+            content='Entry',
+            mood='["happy", "sad", "angry", "calm", "excited"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/mood-trends/')
+        self.assertEqual(response.status_code, 200)
+        # The template shows top 3 moods - we can't easily assert count in template
+        # but we can verify the view returns correct data
+        weeks = response.context['weeks']
+        self.assertEqual(len(weeks), 1)
+        self.assertEqual(len(weeks[0]['top_moods']), 3)
+
+    def test_mood_trends_only_shows_own_entries(self):
+        other_user = User.objects.create_user(username='other', password='testpass123')
+        JournalEntry.objects.create(user=other_user, content='Other', mood='["happy"]')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/mood-trends/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No mood data available')
+
+    def test_mood_trends_excludes_null_mood(self):
+        """Entries without mood should be excluded."""
+        JournalEntry.objects.create(user=self.user, content='No mood')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/mood-trends/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No mood data available')
+
+    def test_mood_trends_has_legend(self):
+        """Mood trends page should show a legend."""
+        JournalEntry.objects.create(user=self.user, content='Entry', mood='["happy"]')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/mood-trends/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Legend')
+
+    def test_mood_trends_mood_bars_have_colors(self):
+        """Mood bars should have color information."""
+        JournalEntry.objects.create(user=self.user, content='Entry', mood='["happy"]')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/mood-trends/')
+        self.assertEqual(response.status_code, 200)
+        weeks = response.context['weeks']
+        self.assertTrue(len(weeks) > 0)
+        self.assertTrue(len(weeks[0]['top_moods']) > 0)
+        # Check that color is set
+        self.assertIn('color', weeks[0]['top_moods'][0])
+        self.assertIn('width', weeks[0]['top_moods'][0])
+
+    def test_mood_trends_multiple_weeks(self):
+        """Entries in different weeks should create separate week entries."""
+        from datetime import date as date_type
+        today = timezone.now().date()
+        # Entry in current week
+        JournalEntry.objects.create(user=self.user, content='This week', mood='["happy"]', date=today)
+        # Entry 2 weeks ago
+        e2 = JournalEntry.objects.create(user=self.user, content='Two weeks ago', mood='["sad"]')
+        e2.date = today - timedelta(days=14)
+        e2.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/mood-trends/')
+        self.assertEqual(response.status_code, 200)
+        weeks = response.context['weeks']
+        self.assertEqual(len(weeks), 2)
+
+
+class NavigationPhase2Test(TestCase):
+    """Tests for Phase 2 navigation links."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_nav_has_monthly_reports_link(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/')
+        self.assertContains(response, 'Monthly Reports')
+
+    def test_nav_has_on_this_day_link(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/')
+        self.assertContains(response, 'On This Day')
+
+    def test_nav_has_mood_trends_link(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/')
+        self.assertContains(response, 'Mood Trends')
+
+    def test_monthly_reports_page_has_nav(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/reports/monthly/')
+        self.assertContains(response, 'navbar')
+
+    def test_on_this_day_page_has_nav(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/on-this-day/')
+        self.assertContains(response, 'navbar')
+
+    def test_mood_trends_page_has_nav(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/mood-trends/')
+        self.assertContains(response, 'navbar')
