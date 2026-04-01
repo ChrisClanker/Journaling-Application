@@ -49,22 +49,18 @@ Check out my homelab project. Just copy the docker compose. You'll need the olla
 NVIDIA users have it the easiest, I recommend checking out [this article](https://gist.github.com/usrbinkat/de44facc683f954bf0cca6c87e2f9f88) as it should give you some helpful information on how to set up the compose.
 The broad strokes: You'll need to get an ollama API endpoint listening. From there, the application during initialization should do all of the heavy lifting for you. By default, it'll grab Deepseek's r1-14b.
 
-### Setting your .env file
-The docker compose references an env file. In the repository, the one that's included has all the ENV values you need, however, you'll need to set them yourself. The following values are required:
-* `SECRET_KEY`: The value of the secret key for the Django webapp. Should be set to a random 64 hexadecimal value.
-* `SIGNAL_NUMBER`: The value of the phone number (including area code) you intend to use for Signal (blurb integration). Example value: +12024566213
-* `WEBAPP_USERNAME`: The value of the username you intend to use for your journaling. The blurb integration will attach your blurbs to this user.
-
-### Provisioning the database
-The application uses PostgreSQL for data persistence. The database is provisioned automatically when you run `docker compose up`. The docker compose file includes the necessary PostgreSQL container configuration.
-
 ### Environment Variables
+
 The docker compose references an env file. In the repository, the one that's included has all the ENV values you need, however, you'll need to set them yourself. The following values are required:
+
 * `SECRET_KEY`: The value of the secret key for the Django webapp. Should be set to a random 64 hexadecimal value.
 * `SIGNAL_NUMBER`: The value of the phone number (including area code) you intend to use for Signal (blurb integration). Example value: +12024566213
 * `WEBAPP_USERNAME`: The value of the username you intend to use for your journaling. The blurb integration will attach your blurbs to this user.
 * `OLLAMA_API_URL`: The URL of your local Ollama API endpoint (e.g., `http://ollama:11434/api/generate`).
 * `OLLAMA_MODEL`: The name of the Ollama model to use for AI processing (e.g., `deepseek-r1:14b`).
+
+### Provisioning the database
+The application uses PostgreSQL for data persistence. The database is provisioned automatically when you run `docker compose up`. The docker compose file includes the necessary PostgreSQL container configuration.
 
 ---
 

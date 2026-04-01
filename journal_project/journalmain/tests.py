@@ -536,7 +536,7 @@ class GoalEditViewTest(TestCase):
         self.assertEqual(self.goal.goal_title, 'Updated Goal')
         self.assertEqual(self.goal.length, '6m')
 
-    def test_cannot_edit_others_goal(self):
+    def test_can_edit_own_goal(self):
         other_user = User.objects.create_user(username='otheruser', password='testpass123')
         self.client.login(username='testuser', password='testpass123')
         response = self.client.get(f'/goals/{self.goal.id}/edit/')
@@ -620,6 +620,16 @@ class JournalEditViewTest(TestCase):
         response = self.client.get('/details/99999/edit/')
         self.assertEqual(response.status_code, 404)
 
+    def test_cannot_edit_others_journal(self):
+        other_user = User.objects.create_user(username='otheruser', password='testpass123')
+        other_journal = JournalEntry.objects.create(
+            user=other_user,
+            content='Other user journal'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/details/{other_journal.id}/edit/')
+        self.assertEqual(response.status_code, 404)
+
 
 class JournalDeleteViewTest(TestCase):
     def setUp(self):
@@ -649,4 +659,14 @@ class JournalDeleteViewTest(TestCase):
     def test_journal_delete_not_found(self):
         self.client.login(username='testuser', password='testpass123')
         response = self.client.get('/details/99999/delete/')
+        self.assertEqual(response.status_code, 404)
+
+    def test_cannot_delete_others_journal(self):
+        other_user = User.objects.create_user(username='otheruser', password='testpass123')
+        other_journal = JournalEntry.objects.create(
+            user=other_user,
+            content='Other user journal'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/details/{other_journal.id}/delete/')
         self.assertEqual(response.status_code, 404)
