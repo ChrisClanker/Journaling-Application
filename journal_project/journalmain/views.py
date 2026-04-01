@@ -2,6 +2,7 @@ from django.shortcuts import render, get_object_or_404
 from django.http import HttpResponse, HttpResponseRedirect
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import authenticate, login
+from django.conf import settings
 from .models import JournalEntry, Blurb, Report, Goal
 import json
 from .forms import JournalForm, AskJournalForm, GoalForm
@@ -89,7 +90,7 @@ def journal_question(request):
             for journal in form.cleaned_data['journals']:
                 journal_preamble+=f"Journal Entry:\nDate: {journal.date}\nContent:\n```{journal.content}```"
             print(prompt+question+journal_preamble)
-            response = requests.post('http://homelab-ollama-api-intel-gpu-container-1:11434/api/generate', json={'model':'deepseek-r1:14b','stream':False,'options':{'num_ctx':4096},'prompt':prompt+question+journal_preamble})
+            response = requests.post(settings.OLLAMA_API_URL, json={'model': settings.OLLAMA_MODEL, 'stream': False, 'options': {'num_ctx': 4096}, 'prompt': prompt + question + journal_preamble})
             return render(request, 'report_detail.html', {'report_entry' : Report(user=request.user, title='Temporary Question', type='w', content=response.json()['response'].split('</think>')[1].strip()) })
         # This isn't nice, but, I see no better option. TODO to add some more verbose error reporting.
         return HttpResponseRedirect("/journals/")    
@@ -138,18 +139,16 @@ def report_detail(request, id):
     report_entry = get_object_or_404(Report, id=id, user=request.user)
     return render(request, 'report_detail.html', {'report_entry' : report_entry})
 
-#     path('goals/', views.goals, name='goals'),
 @login_required
 def goals(request):
-    # TODO: Find a better order-by
-    goal_entries = Goal.objects.filter(user=request.user) #.order_by('-created_at')
+    goal_entries = Goal.objects.filter(user=request.user).order_by('-created_at')
     return render(request, 'goalindex.html', {'goal_entries': goal_entries})
 
 
 #    path('goals/create.html', views.goals_create, name='goals_create'),
 @login_required
 def goal_create(request):
-    goal_entries = Goal.objects.filter(user=request.user) #.order_by('-created_at')
+    goal_entries = Goal.objects.filter(user=request.user).order_by('-created_at')
     if request.method == "POST":
         # create a form instance and populate it with data from the request:
         form = GoalForm(request.POST)
@@ -160,7 +159,6 @@ def goal_create(request):
             # process the data in form.cleaned_data as required
             print(form.cleaned_data)
             new = Goal()
-            new.goalCreated = timezone.now()
             new.user = request.user # This WILL error when not logged in, but, that's fine 
             # {'goal_title': 'Test', 'goal_text': 'test', 'goal_rationale': 'test', 'length': '1m', 'parent_goal': None}
             new.goal_title = form.cleaned_data['goal_title']
@@ -183,7 +181,7 @@ def goal_create(request):
 def goal_detail(request, id):
     goal_entry = get_object_or_404(Goal, id=id, user=request.user)
     today = timezone.now()
-    expiration_date = goal_entry.goalCreated
+    expiration_date = goal_entry.created_at
 
     # Terrible way to do this, but, we'll decompose the options to a list eventually
     # XXX: Define this as a list with constants that are pulled out of the models file

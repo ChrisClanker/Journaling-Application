@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.utils import timezone
 
 # Blurbs are messages sent throughout the day when
 # things happen that remind you to journal about the topic.
@@ -7,7 +8,7 @@ class Blurb(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     journalEntry = models.ForeignKey('JournalEntry', on_delete=models.CASCADE, null=True, blank=True)
     blurb_text = models.CharField(max_length=1024)
-    created_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
 
@@ -16,7 +17,7 @@ class Goal(models.Model):
     goal_title = models.CharField(max_length=256, blank=False, null=False)
     goal_text = models.CharField(max_length=1024, blank=False, null=False)
     goal_rationale = models.CharField(max_length=1024, blank=False, null=False)
-    goalCreated = models.DateTimeField(blank=False, null=False)
+    created_at = models.DateTimeField(default=timezone.now)
     journals = models.ManyToManyField('JournalEntry', blank=True)
     LENGTH_CHOICES = [
         ('1m', '1 Month'),
@@ -63,7 +64,7 @@ class JournalEntry(models.Model):
     mood = models.CharField(max_length=512, blank=True, null=True)
     reflections = models.TextField(blank=True, null=True)
     gratitude = models.TextField(blank=True, null=True)
-    created_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     week_report = models.ForeignKey(Report, on_delete=models.SET_NULL, related_name='week_report', blank=True, null=True)
     month_report = models.ForeignKey(Report, on_delete=models.SET_NULL, related_name='month_report', blank=True, null=True)

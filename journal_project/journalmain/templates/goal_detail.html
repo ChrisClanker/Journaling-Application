@@ -37,7 +37,7 @@
 
     <div class="container mt-5">
         <h1 class="mb-4">{{ goal.goal_title }}</h1>
-        <p class="text-muted">Created at: {{ goal.goalCreated }}</p>
+        <p class="text-muted">Created at: {{ goal.created_at }}</p>
         {% if expired %}
             <div class="alert alert-danger" role="alert">
                 Goal has expired on {{ expiration_date_str }}.
@@ -66,7 +66,7 @@
         {% endif %}
 
         <hr>
-        <p class="text-muted">Created at: {{ goal.goalCreated }}</p>
+        <p class="text-muted">Created at: {{ goal.created_at }}</p>
 
         <a href="{% url 'goals' %}" class="btn btn-primary mt-3">Back to Goals</a>
     </div>

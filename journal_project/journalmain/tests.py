@@ -67,7 +67,7 @@ class GoalModelTest(TestCase):
             goal_title='Learn Python',
             goal_text='Complete Django tutorial',
             goal_rationale='Improve career prospects',
-            goalCreated=timezone.now(),
+            created_at=timezone.now(),
             length='1m'
         )
         self.assertEqual(goal.user, self.user)
@@ -81,7 +81,7 @@ class GoalModelTest(TestCase):
                 goal_title=f'Test Goal {length_value}',
                 goal_text='Test text',
                 goal_rationale='Test rationale',
-                goalCreated=timezone.now(),
+                created_at=timezone.now(),
                 length=length_value
             )
             self.assertEqual(goal.length, length_value)
@@ -92,7 +92,7 @@ class GoalModelTest(TestCase):
             goal_title='Parent Goal',
             goal_text='Parent text',
             goal_rationale='Parent rationale',
-            goalCreated=timezone.now(),
+            created_at=timezone.now(),
             length='1y'
         )
         child_goal = Goal.objects.create(
@@ -100,7 +100,7 @@ class GoalModelTest(TestCase):
             goal_title='Child Goal',
             goal_text='Child text',
             goal_rationale='Child rationale',
-            goalCreated=timezone.now(),
+            created_at=timezone.now(),
             length='1m',
             parent_goal=parent_goal
         )
@@ -371,7 +371,7 @@ class GoalsViewTest(TestCase):
             goal_title='Test Goal',
             goal_text='Test text',
             goal_rationale='Test rationale',
-            goalCreated=timezone.now(),
+            created_at=timezone.now(),
             length='1m'
         )
 
@@ -418,7 +418,7 @@ class GoalDetailViewTest(TestCase):
             goal_title='Test Goal',
             goal_text='Test text',
             goal_rationale='Test rationale',
-            goalCreated=timezone.now(),
+            created_at=timezone.now(),
             length='1m'
         )
 
