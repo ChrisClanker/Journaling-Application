@@ -112,6 +112,11 @@
             </div>
         </div>
         {% endif %}
+        <div class="form-group">
+            <label for="tags">Tags</label>
+            {{ form.tags }}
+            <small class="form-text text-muted">{{ form.tags.help_text }}</small>
+        </div>
         <button type="submit" class="btn btn-primary submit-btn">Submit</button>
         <p></p>
         <a href="{% url 'journals' %}" class="btn btn-secondary submit-btn">Return to index</a>

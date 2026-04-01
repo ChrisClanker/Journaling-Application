@@ -6,7 +6,7 @@
 
     <title>Journal Entries</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </head>
 <body>
     <div class="container mt-5">
@@ -35,10 +35,10 @@
     // Main logic
     document.addEventListener('DOMContentLoaded', (event) => {
         const htmlElement = document.documentElement;
-        
+
         // Check if dark mode cookie is set
         const isDarkMode = getCookie('dark') === 'True';
-        
+
         if (isDarkMode) {
             // If dark mode is on, add data-bs-theme attribute
             htmlElement.setAttribute('data-bs-theme', 'dark');
@@ -46,11 +46,47 @@
     });
 </script>
 
-
-
-
-
-
+        <!-- Search and Filter Bar -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Search & Filter</h5>
+                <form method="GET" action="{% url 'journals' %}" class="row g-3">
+                    <div class="col-md-4">
+                        <input type="text" name="q" class="form-control" placeholder="Search entries..." value="{{ query }}">
+                    </div>
+                    {% if all_moods %}
+                    <div class="col-md-2">
+                        <select name="mood" class="form-select">
+                            <option value="">All Moods</option>
+                            {% for mood in all_moods %}
+                            <option value="{{ mood }}" {% if mood == mood_filter %}selected{% endif %}>{{ mood|title }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+                    <div class="col-md-2">
+                        <input type="date" name="date_from" class="form-control" placeholder="From" value="{{ date_from }}">
+                    </div>
+                    <div class="col-md-2">
+                        <input type="date" name="date_to" class="form-control" placeholder="To" value="{{ date_to }}">
+                    </div>
+                    {% if all_tags %}
+                    <div class="col-md-2">
+                        <select name="tag" class="form-select">
+                            <option value="">All Tags</option>
+                            {% for tag in all_tags %}
+                            <option value="{{ tag.name }}" {% if tag.name == tag_filter %}selected{% endif %}>{{ tag.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+                    <div class="col-md-12">
+                        <button type="submit" class="btn btn-primary">Filter</button>
+                        <a href="{% url 'journals' %}" class="btn btn-secondary">Clear Filters</a>
+                    </div>
+                </form>
+            </div>
+        </div>
 
         <table class="table table-striped">
             <thead>
@@ -129,10 +165,10 @@
     // Main logic
     document.addEventListener('DOMContentLoaded', (event) => {
         const darkModeToggle = document.getElementById('darkModeToggle');
-        
+
         // Check if dark mode cookie is set
         const isDarkMode = getCookie('dark') === 'True';
-        
+
         if (isDarkMode) {
             // If dark mode is on, display sun emoji and set button click handler to turn off dark mode
             darkModeToggle.innerText = '☀️';

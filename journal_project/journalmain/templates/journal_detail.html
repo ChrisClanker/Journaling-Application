@@ -38,6 +38,9 @@
     <div class="container mt-5">
         <h1 class="mb-4">{{ entry.title }}</h1>
         <p class="text-muted">Date: {{ entry.date }}</p>
+        {% if entry.bookmarked %}
+        <span class="badge bg-warning text-dark">Bookmarked</span>
+        {% endif %}
         <hr>
 
         <h4>Content</h4>
@@ -48,6 +51,14 @@
           {{ mooditem | safe}}
         {% endfor %}
 
+        {% if tags %}
+        <h4>Tags</h4>
+        <div>
+            {% for tag in tags %}
+            <a href="{% url 'tag_detail' tag.id %}" class="badge bg-info text-decoration-none me-1">{{ tag.name }}</a>
+            {% endfor %}
+        </div>
+        {% endif %}
 
         <h4>Reflections</h4>
         <p>{{ entry.reflections }}</p>
@@ -61,6 +72,7 @@
 
         <a href="{% url 'journal_edit' entry.id %}" class="btn btn-warning mt-3">Edit Journal</a>
         <a href="{% url 'journal_delete' entry.id %}" class="btn btn-danger mt-3">Delete Journal</a>
+        <a href="{% url 'journal_toggle_bookmark' entry.id %}" class="btn {% if entry.bookmarked %}btn-secondary{% else %}btn-outline-warning{% endif %} mt-3">{% if entry.bookmarked %}Unbookmark{% else %}Bookmark{% endif %}</a>
         <a href="{% url 'journals' %}" class="btn btn-primary mt-3">Back to Journal Entries</a>
     </div>
 

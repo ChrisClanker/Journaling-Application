@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tags - My Journal</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <style>
+        body {
+            font-family: 'Times New Roman', Times, serif;
+        }
+    </style>
+</head>
+<body>
+<script>
+    function getCookie(name) {
+        var nameEQ = name + "=";
+        var ca = document.cookie.split(';');
+        for(var i=0;i < ca.length;i++) {
+            var c = ca[i];
+            while (c.charAt(0)==' ') c = c.substring(1,c.length);
+            if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length,c.length);
+        }
+        return null;
+    }
+
+    document.addEventListener('DOMContentLoaded', (event) => {
+        const htmlElement = document.documentElement;
+        const isDarkMode = getCookie('dark') === 'True';
+        if (isDarkMode) {
+            htmlElement.setAttribute('data-bs-theme', 'dark');
+        }
+    });
+</script>
+
+<div class="container mt-5">
+    <h1 class="mb-4">Tags</h1>
+    <a href="{% url 'dashboard' %}" class="btn btn-secondary mb-3">Back to Dashboard</a>
+    <button id="darkModeToggle" class="btn btn-secondary mb-3 ms-2"></button>
+
+    {% if tags %}
+        <div class="row">
+            {% for tag in tags %}
+            <div class="col-md-4 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">
+                            <a href="{% url 'tag_detail' tag.id %}">{{ tag.name }}</a>
+                        </h5>
+                        <p class="card-text">{{ tag.entry_count }} entr{{ tag.entry_count|pluralize:"y,ies" }}</p>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="text-muted">No tags yet. Add tags to your journal entries to organize them!</p>
+    {% endif %}
+</div>
+
+<script>
+    function setCookie(name, value, days) {
+        var expires = "";
+        if (days) {
+            var date = new Date();
+            date.setTime(date.getTime() + (days*24*60*60*1000));
+            expires = "; expires=" + date.toUTCString();
+        }
+        document.cookie = name + "=" + (value || "")  + expires + "; path=/";
+    }
+
+    document.addEventListener('DOMContentLoaded', (event) => {
+        const darkModeToggle = document.getElementById('darkModeToggle');
+        const isDarkMode = getCookie('dark') === 'True';
+        if (isDarkMode) {
+            darkModeToggle.innerText = '☀️';
+            darkModeToggle.onclick = function() {
+                setCookie('dark', 'False', 365);
+                window.location.reload();
+            };
+        } else {
+            darkModeToggle.innerText = '🌕';
+            darkModeToggle.onclick = function() {
+                setCookie('dark', 'True', 365);
+                window.location.reload();
+            };
+        }
+    });
+</script>
+
+</body>
+</html>

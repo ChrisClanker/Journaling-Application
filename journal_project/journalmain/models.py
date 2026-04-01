@@ -54,6 +54,18 @@ class Report(models.Model):
         return self.title
 
 
+class Tag(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    name = models.CharField(max_length=50, db_index=True)
+
+    class Meta:
+        unique_together = ('user', 'name')
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
 # Create your models here.
 class JournalEntry(models.Model):
     # The user who made the journal entry
@@ -68,6 +80,8 @@ class JournalEntry(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     week_report = models.ForeignKey(Report, on_delete=models.SET_NULL, related_name='week_report', blank=True, null=True)
     month_report = models.ForeignKey(Report, on_delete=models.SET_NULL, related_name='month_report', blank=True, null=True)
+    bookmarked = models.BooleanField(default=False)
+    tags = models.ManyToManyField('Tag', blank=True, related_name='journal_entries')
 
     def __str__(self):
         if self.title is None:

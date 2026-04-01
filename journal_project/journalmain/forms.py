@@ -38,6 +38,11 @@ class JournalForm(forms.ModelForm):
         required=False,
         label="How are you feeling? (select all that apply)"
     )
+    tags = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={'placeholder': 'tag1, tag2, tag3'}),
+        help_text='Comma-separated tags'
+    )
 
     def __init__(self, *args, **kwargs):
         self.use_ai = kwargs.pop('use_ai', True)

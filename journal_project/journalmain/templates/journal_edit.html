@@ -92,6 +92,11 @@
             </div>
         </div>
         {% endif %}
+        <div class="form-group">
+            <label for="tags">Tags</label>
+            <input type="text" name="tags" id="tags" class="form-control" placeholder="tag1, tag2, tag3" value="{{ existing_tags }}">
+            <small class="form-text text-muted">Comma-separated tags</small>
+        </div>
         <button type="submit" class="btn btn-primary submit-btn">Save Changes</button>
         <p></p>
         <a href="{% url 'journal_detail' entry.id %}" class="btn btn-secondary submit-btn">Back to Journal</a>

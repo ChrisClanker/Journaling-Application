@@ -3,12 +3,15 @@ from django.http import HttpResponse, HttpResponseRedirect
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import authenticate, login
 from django.conf import settings
-from .models import JournalEntry, Blurb, Report, Goal
+from django.db.models import Q, Count
+from .models import JournalEntry, Blurb, Report, Goal, Tag
 import json
 from .forms import JournalForm, AskJournalForm, GoalForm
 from datetime import datetime, timedelta
 from django.utils import timezone
 import requests
+from collections import Counter
+import calendar
 # Create your views here.
 
 
@@ -40,6 +43,35 @@ mood_colors = {
     "pessimistic": "badge-dark"
 }
 
+# CSS color mapping for mood calendar heatmap
+mood_heatmap_colors = {
+    "happy": "#28a745",
+    "sad": "#6c757d",
+    "angry": "#dc3545",
+    "afraid": "#ffc107",
+    "excited": "#28a745",
+    "calm": "#17a2b8",
+    "worried": "#f8f9fa",
+    "in love": "#dc3545",
+    "surprised": "#ffc107",
+    "proud": "#28a745",
+    "ashamed": "#6c757d",
+    "frustrated": "#dc3545",
+    "guilty": "#dc3545",
+    "curious": "#17a2b8",
+    "nostalgic": "#f8f9fa",
+    "hopeful": "#007bff",
+    "disappointed": "#6c757d",
+    "embarrassed": "#6c757d",
+    "envious": "#dc3545",
+    "grateful": "#28a745",
+    "longing": "#17a2b8",
+    "relieved": "#007bff",
+    "optimistic": "#007bff",
+    "pessimistic": "#343a40"
+}
+
+
 def mood_list_creation(entry: JournalEntry):
     return_list = []
     if(entry.mood is None):
@@ -59,10 +91,179 @@ def mood_list_creation(entry: JournalEntry):
     #print(return_list)
     return return_list
 
+
+def calculate_current_streak(entries):
+    """Calculate current journaling streak (consecutive days ending today or yesterday)."""
+    if not entries:
+        return 0
+    dates = sorted(set(entries.values_list('date', flat=True)), reverse=True)
+    today = timezone.now().date()
+    yesterday = today - timedelta(days=1)
+    # Streak must start from today or yesterday
+    if dates[0] not in (today, yesterday):
+        return 0
+    streak = 1
+    for i in range(1, len(dates)):
+        if dates[i-1] - dates[i] == timedelta(days=1):
+            streak += 1
+        else:
+            break
+    return streak
+
+
+def calculate_longest_streak(entries):
+    """Calculate longest journaling streak ever."""
+    if not entries:
+        return 0
+    dates = sorted(set(entries.values_list('date', flat=True)))
+    longest = 1
+    current = 1
+    for i in range(1, len(dates)):
+        if dates[i] - dates[i-1] == timedelta(days=1):
+            current += 1
+            longest = max(longest, current)
+        else:
+            current = 1
+    return longest
+
+
+def get_most_common_mood(entries):
+    """Get the most common mood from all journal entries."""
+    all_moods = []
+    for entry in entries:
+        if entry.mood:
+            try:
+                moods = json.loads(entry.mood.replace("'", '"'))
+                all_moods.extend(moods)
+            except (json.JSONDecodeError, AttributeError):
+                pass
+    if not all_moods:
+        return None
+    counter = Counter(all_moods)
+    return counter.most_common(1)[0][0]
+
+
+def generate_calendar_data(earliest, latest, mood_map, date_entry_map=None, mood_colors=None):
+    """Generate month-by-month calendar data."""
+    from datetime import date
+    months = []
+    current = date(earliest.year, earliest.month, 1)
+    end = date(latest.year, latest.month, 1)
+
+    while current <= end:
+        month_cal = calendar.monthcalendar(current.year, current.month)
+        days = []
+        for week in month_cal:
+            for day_num in week:
+                if day_num == 0:
+                    days.append(None)  # Empty cell
+                else:
+                    d = date(current.year, current.month, day_num)
+                    mood = mood_map.get(d.isoformat())
+                    days.append({
+                        'day': day_num,
+                        'date': d,
+                        'date_str': d.isoformat(),
+                        'mood': mood,
+                        'mood_color': mood_colors.get(mood, '#e9ecef') if mood and mood_colors else '#e9ecef',
+                        'entry_id': date_entry_map.get(d.isoformat()) if date_entry_map else None,
+                    })
+        months.append({
+            'month': current.strftime('%B %Y'),
+            'days': days,
+        })
+        # Advance to next month
+        if current.month == 12:
+            current = date(current.year + 1, 1, 1)
+        else:
+            current = date(current.year, current.month + 1, 1)
+
+    return months
+
+
+@login_required
+def dashboard(request):
+    entries = JournalEntry.objects.filter(user=request.user).order_by('-date')
+    total_entries = entries.count()
+    current_streak = calculate_current_streak(entries)
+    longest_streak = calculate_longest_streak(entries)
+    most_common_mood = get_most_common_mood(entries)
+    recent_entries = entries[:5]
+
+    # Get bookmarked entries for quick access
+    bookmarked = entries.filter(bookmarked=True)[:5]
+
+    context = {
+        'total_entries': total_entries,
+        'current_streak': current_streak,
+        'longest_streak': longest_streak,
+        'most_common_mood': most_common_mood,
+        'recent_entries': recent_entries,
+        'bookmarked_entries': bookmarked,
+        'use_ai': settings.USE_AI,
+    }
+    return render(request, 'dashboard.html', context)
+
+
 @login_required
 def journals(request):
-    journal_entries = JournalEntry.objects.filter(user=request.user).order_by('-date')
-    return render(request, 'journalindex.html', {'journal_entries': journal_entries, 'use_ai': settings.USE_AI})
+    entries = JournalEntry.objects.filter(user=request.user)
+
+    # Search
+    query = request.GET.get('q', '').strip()
+    if query:
+        entries = entries.filter(
+            Q(title__icontains=query) |
+            Q(content__icontains=query) |
+            Q(reflections__icontains=query) |
+            Q(gratitude__icontains=query)
+        )
+
+    # Filter by mood
+    mood_filter = request.GET.get('mood', '').strip()
+    if mood_filter:
+        entries = entries.filter(mood__icontains=mood_filter)
+
+    # Filter by date range
+    date_from = request.GET.get('date_from', '').strip()
+    date_to = request.GET.get('date_to', '').strip()
+    if date_from:
+        entries = entries.filter(date__gte=date_from)
+    if date_to:
+        entries = entries.filter(date__lte=date_to)
+
+    # Filter by tag
+    tag_filter = request.GET.get('tag', '').strip()
+    if tag_filter:
+        entries = entries.filter(tags__name__iexact=tag_filter)
+
+    entries = entries.order_by('-date')
+
+    # Get all unique moods for filter dropdown
+    all_moods = set()
+    for entry in JournalEntry.objects.filter(user=request.user):
+        if entry.mood:
+            try:
+                moods = json.loads(entry.mood.replace("'", '"'))
+                all_moods.update(moods)
+            except (json.JSONDecodeError, AttributeError):
+                pass
+
+    # Get all tags for filter dropdown
+    all_tags = Tag.objects.filter(journal_entries__user=request.user).distinct()
+
+    return render(request, 'journalindex.html', {
+        'journal_entries': entries,
+        'use_ai': settings.USE_AI,
+        'query': query,
+        'mood_filter': mood_filter,
+        'date_from': date_from,
+        'date_to': date_to,
+        'tag_filter': tag_filter,
+        'all_moods': sorted(all_moods),
+        'all_tags': all_tags,
+    })
+
 
 def login_view(request):
     if request.method == 'POST':
@@ -71,10 +272,11 @@ def login_view(request):
         user = authenticate(request, username=username, password=password)
         if user is not None:
             login(request, user)
-            return HttpResponseRedirect('/journals/')
+            return HttpResponseRedirect('/')
         else:
             return render(request, 'login.html', {'error': 'Invalid credentials'})
     return render(request, 'login.html')
+
 
 @login_required
 def journal_question(request):
@@ -95,16 +297,19 @@ def journal_question(request):
             response = requests.post(settings.OLLAMA_API_URL, json={'model': settings.OLLAMA_MODEL, 'stream': False, 'options': {'num_ctx': 4096}, 'prompt': prompt + question + journal_preamble})
             return render(request, 'report_detail.html', {'report_entry' : Report(user=request.user, title='Temporary Question', type='w', content=response.json()['response'].split('</think>')[1].strip()) })
         # This isn't nice, but, I see no better option. TODO to add some more verbose error reporting.
-        return HttpResponseRedirect("/journals/")    
+        return HttpResponseRedirect("/journals/")
     else:
         form = AskJournalForm(user=request.user)
         return render(request, 'journal_ask.html', {'form': form})
+
 
 @login_required
 def journal_detail(request, id):
     entry = get_object_or_404(JournalEntry, id=id, user=request.user)
     mood = mood_list_creation(entry)
-    return render(request, 'journal_detail.html', {'entry': entry, 'moods' : mood})
+    tags = entry.tags.all()
+    return render(request, 'journal_detail.html', {'entry': entry, 'moods' : mood, 'tags': tags})
+
 
 @login_required
 def journal_create(request):
@@ -129,6 +334,13 @@ def journal_create(request):
                 if mood_selection:
                     new.mood = json.dumps(mood_selection)
             new.save()
+            # Handle tags
+            tags_str = form.cleaned_data.get('tags', '')
+            if tags_str:
+                tag_names = [t.strip() for t in tags_str.split(',') if t.strip()]
+                for tag_name in tag_names:
+                    tag, created = Tag.objects.get_or_create(user=request.user, name=tag_name.lower())
+                    new.tags.add(tag)
             # Let's mark the blurbs as spent now
             # Note this has a known issue - if the blurb was sent after the user started journaling
             # but before it was submitted, it would be marked as spent. This is not a big deal.
@@ -136,7 +348,7 @@ def journal_create(request):
                 blurb.journalEntry = new
                 blurb.save()
             # redirect to a new URL:
-            return HttpResponseRedirect("/journals/")    
+            return HttpResponseRedirect("/journals/")
         return render(request, 'journal_submit.html', {'form':form})
     else:
         form = JournalForm(use_ai=settings.USE_AI)
@@ -159,11 +371,21 @@ def journal_edit(request, id):
                 if mood_selection:
                     entry.mood = json.dumps(mood_selection)
                     entry.save()
+            # Handle tags
+            tags_str = form.cleaned_data.get('tags', '')
+            entry.tags.clear()
+            if tags_str:
+                tag_names = [t.strip() for t in tags_str.split(',') if t.strip()]
+                for tag_name in tag_names:
+                    tag, created = Tag.objects.get_or_create(user=request.user, name=tag_name.lower())
+                    entry.tags.add(tag)
             return HttpResponseRedirect(f"/details/{id}/")
         return render(request, 'journal_edit.html', {'form': form, 'entry': entry})
     else:
         form = JournalForm(instance=entry, use_ai=settings.USE_AI)
-        return render(request, 'journal_edit.html', {'form': form, 'entry': entry})
+        # Pre-fill tags field
+        existing_tags = ', '.join(t.name for t in entry.tags.all())
+        return render(request, 'journal_edit.html', {'form': form, 'entry': entry, 'existing_tags': existing_tags})
 
 
 @login_required
@@ -174,10 +396,21 @@ def journal_delete(request, id):
         return HttpResponseRedirect("/journals/")
     return render(request, 'journal_confirm_delete.html', {'entry': entry})
 
+
+@login_required
+def journal_toggle_bookmark(request, id):
+    """Toggle bookmark status for a journal entry."""
+    entry = get_object_or_404(JournalEntry, id=id, user=request.user)
+    entry.bookmarked = not entry.bookmarked
+    entry.save()
+    return HttpResponseRedirect(request.META.get('HTTP_REFERER', '/journals/'))
+
+
 @login_required
 def report_detail(request, id):
     report_entry = get_object_or_404(Report, id=id, user=request.user)
     return render(request, 'report_detail.html', {'report_entry' : report_entry})
+
 
 @login_required
 def goals(request):
@@ -199,7 +432,7 @@ def goal_create(request):
             # process the data in form.cleaned_data as required
             print(form.cleaned_data)
             new = Goal()
-            new.user = request.user # This WILL error when not logged in, but, that's fine 
+            new.user = request.user # This WILL error when not logged in, but, that's fine
             # {'goal_title': 'Test', 'goal_text': 'test', 'goal_rationale': 'test', 'length': '1m', 'parent_goal': None}
             new.goal_title = form.cleaned_data['goal_title']
             new.goal_text = form.cleaned_data['goal_text']
@@ -209,14 +442,14 @@ def goal_create(request):
                 new.parent_goal = form.cleaned_data['parent_goal']
             # redirect to a new URL:
             new.save()
-            return HttpResponseRedirect("/goals/")    
+            return HttpResponseRedirect("/goals/")
         return render(request, 'goal_submit.html', {'form':form})
     else:
         form = GoalForm()
         return render(request, 'goal_submit.html', {'form':form, 'goals' : goal_entries})
 
 
-#    path('goals/<int:id>/', views.goals_detail, name='goals_detail'),  
+#    path('goals/<int:id>/', views.goals_detail, name='goals_detail'),
 @login_required
 def goal_detail(request, id):
     goal_entry = get_object_or_404(Goal, id=id, user=request.user)
@@ -268,3 +501,57 @@ def goal_delete(request, id):
         return HttpResponseRedirect("/goals/")
     return render(request, 'goal_confirm_delete.html', {'goal': goal_entry})
 
+
+@login_required
+def mood_calendar(request):
+    entries = JournalEntry.objects.filter(user=request.user).exclude(mood__isnull=True)
+
+    # Build a dict of date -> primary mood
+    mood_map = {}
+    # Also build date -> entry id mapping for clickable cells
+    date_entry_map = {}
+    for entry in entries:
+        if entry.mood:
+            try:
+                moods = json.loads(entry.mood.replace("'", '"'))
+                if moods:
+                    mood_map[entry.date.isoformat()] = moods[0]  # Primary mood
+                    date_entry_map[entry.date.isoformat()] = entry.id
+            except (json.JSONDecodeError, AttributeError):
+                pass
+
+    # Get date range
+    if entries.exists():
+        earliest = entries.order_by('date').first().date
+        latest = entries.order_by('-date').first().date
+    else:
+        earliest = latest = timezone.now().date()
+
+    # Generate calendar data
+    calendar_months = generate_calendar_data(earliest, latest, mood_map, date_entry_map, mood_heatmap_colors)
+
+    return render(request, 'mood_calendar.html', {
+        'mood_map': json.dumps(mood_map),
+        'earliest': earliest,
+        'latest': latest,
+        'mood_colors': mood_heatmap_colors,
+        'calendar_months': calendar_months,
+        'date_entry_map': date_entry_map,
+    })
+
+
+@login_required
+def tag_list(request):
+    """List all tags for the current user."""
+    tags = Tag.objects.filter(user=request.user).annotate(
+        entry_count=Count('journal_entries')
+    ).order_by('name')
+    return render(request, 'tag_list.html', {'tags': tags})
+
+
+@login_required
+def tag_detail(request, id):
+    """Show all journal entries for a specific tag."""
+    tag = get_object_or_404(Tag, id=id, user=request.user)
+    entries = tag.journal_entries.filter(user=request.user).order_by('-date')
+    return render(request, 'tag_detail.html', {'tag': tag, 'entries': entries})
