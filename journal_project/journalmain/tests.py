@@ -3,6 +3,7 @@ from django.contrib.auth.models import User
 from django.urls import reverse
 from django.utils import timezone
 from datetime import timedelta
+import json
 from .models import JournalEntry, Goal, Blurb, Report
 from .forms import JournalForm, AskJournalForm, GoalForm
 
@@ -670,3 +671,91 @@ class JournalDeleteViewTest(TestCase):
         self.client.login(username='testuser', password='testpass123')
         response = self.client.get(f'/details/{other_journal.id}/delete/')
         self.assertEqual(response.status_code, 404)
+
+
+class UseAIDisabledTest(TestCase):
+    """Tests for behavior when USE_AI=False (the default)."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_journal_question_redirects_when_ai_disabled(self):
+        """When USE_AI is False, the ask-a-question view should redirect to journals."""
+        from django.conf import settings
+        # Verify the setting is False by default
+        self.assertFalse(settings.USE_AI)
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/journals/ask.html')
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, '/journals/')
+
+    def test_journal_create_generates_date_title_when_ai_disabled(self):
+        """When USE_AI is False, journal entries get a date-based title."""
+        from django.conf import settings
+        self.assertFalse(settings.USE_AI)
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post('/journals/create.html', {
+            'content': 'Test entry without AI',
+            'reflections': '',
+            'gratitude': '',
+            'mood': ['happy', 'grateful'],
+        })
+        self.assertEqual(response.status_code, 302)
+        entry = JournalEntry.objects.get(user=self.user)
+        self.assertTrue(entry.title.startswith('Journal Entry -'))
+        self.assertEqual(json.loads(entry.mood), ['happy', 'grateful'])
+
+    def test_journal_create_no_mood_when_none_selected(self):
+        """When USE_AI is False and no mood is selected, mood should be None or empty."""
+        from django.conf import settings
+        self.assertFalse(settings.USE_AI)
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post('/journals/create.html', {
+            'content': 'Test entry without mood',
+            'reflections': '',
+            'gratitude': '',
+        })
+        self.assertEqual(response.status_code, 302)
+        entry = JournalEntry.objects.get(user=self.user)
+        self.assertIsNone(entry.mood)
+
+
+class JournalFormUseAITest(TestCase):
+    """Tests for JournalForm's use_ai parameter."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_form_has_mood_field_when_ai_disabled(self):
+        """When use_ai=False, the mood field should be present."""
+        form = JournalForm(use_ai=False)
+        self.assertIn('mood', form.fields)
+
+    def test_form_no_mood_field_when_ai_enabled(self):
+        """When use_ai=True (default), the mood field should not be present."""
+        form = JournalForm()
+        self.assertNotIn('mood', form.fields)
+
+    def test_form_valid_with_mood_when_ai_disabled(self):
+        """Form should validate with mood selections when AI is disabled."""
+        data = {
+            'content': 'Test content',
+            'reflections': '',
+            'gratitude': '',
+            'mood': ['happy', 'excited'],
+        }
+        form = JournalForm(data=data, use_ai=False)
+        self.assertTrue(form.is_valid())
+        self.assertEqual(form.cleaned_data['mood'], ['happy', 'excited'])
+
+    def test_form_valid_without_mood_when_ai_disabled(self):
+        """Form should validate without mood selections when AI is disabled."""
+        data = {
+            'content': 'Test content',
+            'reflections': '',
+            'gratitude': '',
+        }
+        form = JournalForm(data=data, use_ai=False)
+        self.assertTrue(form.is_valid())
+        self.assertEqual(form.cleaned_data.get('mood'), [])
