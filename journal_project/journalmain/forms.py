@@ -4,7 +4,48 @@ from django.contrib.auth.models import User
 from .models import JournalEntry, Goal
 
 
+MOOD_CHOICES = [
+    ('happy', 'Happy'),
+    ('sad', 'Sad'),
+    ('angry', 'Angry'),
+    ('afraid', 'Afraid'),
+    ('excited', 'Excited'),
+    ('calm', 'Calm'),
+    ('worried', 'Worried'),
+    ('in love', 'In Love'),
+    ('surprised', 'Surprised'),
+    ('proud', 'Proud'),
+    ('ashamed', 'Ashamed'),
+    ('frustrated', 'Frustrated'),
+    ('guilty', 'Guilty'),
+    ('curious', 'Curious'),
+    ('nostalgic', 'Nostalgic'),
+    ('hopeful', 'Hopeful'),
+    ('disappointed', 'Disappointed'),
+    ('embarrassed', 'Embarrassed'),
+    ('envious', 'Envious'),
+    ('grateful', 'Grateful'),
+    ('longing', 'Longing'),
+    ('relieved', 'Relieved'),
+    ('optimistic', 'Optimistic'),
+    ('pessimistic', 'Pessimistic'),
+]
+
 class JournalForm(forms.ModelForm):
+    mood = forms.MultipleChoiceField(
+        choices=MOOD_CHOICES,
+        widget=forms.CheckboxSelectMultiple,
+        required=False,
+        label="How are you feeling? (select all that apply)"
+    )
+
+    def __init__(self, *args, **kwargs):
+        self.use_ai = kwargs.pop('use_ai', True)
+        super().__init__(*args, **kwargs)
+        if self.use_ai:
+            # Remove the mood field when AI is enabled (AI handles it)
+            self.fields.pop('mood', None)
+
     class Meta:
         model = JournalEntry
         fields = ['content', 'reflections', 'gratitude']

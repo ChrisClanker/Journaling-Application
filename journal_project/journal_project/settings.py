@@ -146,3 +146,5 @@ LOGOUT_URL = '/logout/'
 
 OLLAMA_API_URL = os.environ.get("OLLAMA_API_URL", "http://localhost:11434/api/generate")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "deepseek-r1:14b")
+
+USE_AI = os.environ.get("USE_AI", "False").lower() in ("true", "1", "yes")

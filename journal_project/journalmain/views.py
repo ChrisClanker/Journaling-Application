@@ -62,7 +62,7 @@ def mood_list_creation(entry: JournalEntry):
 @login_required
 def journals(request):
     journal_entries = JournalEntry.objects.filter(user=request.user).order_by('-date')
-    return render(request, 'journalindex.html', {'journal_entries': journal_entries}) #HttpResponse("Hello world!")
+    return render(request, 'journalindex.html', {'journal_entries': journal_entries, 'use_ai': settings.USE_AI})
 
 def login_view(request):
     if request.method == 'POST':
@@ -78,6 +78,8 @@ def login_view(request):
 
 @login_required
 def journal_question(request):
+    if not settings.USE_AI:
+        return HttpResponseRedirect("/journals/")
     if request.method == "POST":
         form = AskJournalForm(request.POST, user=request.user)
         # This is a neat little trick, if we call it this way, it'll create it in memory but not persist to the database
@@ -108,7 +110,7 @@ def journal_detail(request, id):
 def journal_create(request):
     if request.method == "POST":
         # create a form instance and populate it with data from the request:
-        form = JournalForm(request.POST)
+        form = JournalForm(request.POST, use_ai=settings.USE_AI)
         # check whether it's valid:
         if form.is_valid():
             # process the data in form.cleaned_data as required
@@ -119,6 +121,13 @@ def journal_create(request):
             if len(form.cleaned_data['gratitude']) > 5:
                 new.gratitude = form.cleaned_data['gratitude']
             new.user =  request.user # This WILL error when not logged in, but, that's fine
+            # When AI is disabled, set title to date/time format
+            if not settings.USE_AI:
+                new.title = f"Journal Entry - {timezone.now().strftime('%Y-%m-%d %H:%M')}"
+                # Set mood from keyword selection
+                mood_selection = form.cleaned_data.get('mood')
+                if mood_selection:
+                    new.mood = json.dumps(mood_selection)
             new.save()
             # Let's mark the blurbs as spent now
             # Note this has a known issue - if the blurb was sent after the user started journaling
@@ -130,7 +139,7 @@ def journal_create(request):
             return HttpResponseRedirect("/journals/")    
         return render(request, 'journal_submit.html', {'form':form})
     else:
-        form = JournalForm()
+        form = JournalForm(use_ai=settings.USE_AI)
         blurbs = list(Blurb.objects.filter(user=request.user, journalEntry=None))
         return render(request, 'journal_submit.html', {'form':form, 'blurbs' : blurbs})
 
@@ -139,13 +148,21 @@ def journal_create(request):
 def journal_edit(request, id):
     entry = get_object_or_404(JournalEntry, id=id, user=request.user)
     if request.method == "POST":
-        form = JournalForm(request.POST, instance=entry)
+        form = JournalForm(request.POST, instance=entry, use_ai=settings.USE_AI)
         if form.is_valid():
             form.save()
+            if not settings.USE_AI:
+                # Update title if it was auto-generated
+                if entry.title and entry.title.startswith("Journal Entry -"):
+                    entry.title = f"Journal Entry - {timezone.now().strftime('%Y-%m-%d %H:%M')}"
+                mood_selection = form.cleaned_data.get('mood')
+                if mood_selection:
+                    entry.mood = json.dumps(mood_selection)
+                    entry.save()
             return HttpResponseRedirect(f"/details/{id}/")
         return render(request, 'journal_edit.html', {'form': form, 'entry': entry})
     else:
-        form = JournalForm(instance=entry)
+        form = JournalForm(instance=entry, use_ai=settings.USE_AI)
         return render(request, 'journal_edit.html', {'form': form, 'entry': entry})
 
 

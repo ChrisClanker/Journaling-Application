@@ -75,6 +75,23 @@
             <label for="gratitude">What's something you're grateful for, today?</label>
             <textarea class="form-control" id="gratitude" name="gratitude" rows="10">{{ entry.gratitude }}</textarea>
         </div>
+        {% if form.mood %}
+        <div class="form-group">
+            <label>{{ form.mood.label }}</label>
+            <div class="row">
+                {% for checkbox in form.mood %}
+                <div class="col-md-4">
+                    <div class="form-check">
+                        {{ checkbox.tag }}
+                        <label class="form-check-label" for="{{ checkbox.id_for_label }}">
+                            {{ checkbox.choice_label }}
+                        </label>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
         <button type="submit" class="btn btn-primary submit-btn">Save Changes</button>
         <p></p>
         <a href="{% url 'journal_detail' entry.id %}" class="btn btn-secondary submit-btn">Back to Journal</a>

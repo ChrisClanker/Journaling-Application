@@ -41,6 +41,60 @@ _Note: The Title and Mood tags are completely AI generated_
 
 
 ## Installation and Usage Instructions
+### Running Locally (Development)
+
+If you want to run the journaling app locally without Docker, follow these steps:
+
+#### 1. Set up a virtual environment
+
+```bash
+cd Journaling-Application
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+#### 2. Create a .env file
+
+Create a `.env` file in the project root with the following values:
+
+```bash
+SECRET_KEY=<a-random-64-character-hex-string>
+DEBUG=True
+USE_AI=False
+WEBAPP_USERNAME=joe
+```
+
+- `SECRET_KEY`: Generate one with `python3 -c "import secrets; print(secrets.token_hex(32))"`
+- `DEBUG`: Set to `True` for local development
+- `USE_AI`: Set to `False` to run without AI/Ollama (default). Set to `True` if you have Ollama running locally.
+- `WEBAPP_USERNAME`: The username for your journal account
+
+#### 3. Initialize the database
+
+```bash
+cd journal_project
+../venv/bin/python manage.py migrate
+../venv/bin/python manage.py createsuperuser
+```
+
+#### 4. Run the development server
+
+```bash
+cd journal_project
+../venv/bin/python manage.py runserver
+```
+
+The app will be available at http://localhost:8000/
+
+#### 5. (Optional) Enable AI features
+
+If you want to use the AI features locally:
+1. Install [Ollama](https://ollama.com/) and start it
+2. Pull a model: `ollama pull deepseek-r1:14b`
+3. Set `USE_AI=True` in your `.env` file
+4. The app will connect to Ollama at `http://localhost:11434` by default
+
 ### Getting the Ollama API running
 #### If you have an Intel GPU
 Check out my homelab project. Just copy the docker compose. You'll need the ollama-api, journal, and postgres containers.
@@ -54,6 +108,8 @@ The broad strokes: You'll need to get an ollama API endpoint listening. From the
 The docker compose references an env file. In the repository, the one that's included has all the ENV values you need, however, you'll need to set them yourself. The following values are required:
 
 * `SECRET_KEY`: The value of the secret key for the Django webapp. Should be set to a random 64 hexadecimal value.
+* `DEBUG`: Set to `True` for development, `False` for production.
+* `USE_AI`: Set to `True` to enable AI-powered features (title generation, mood extraction, ask-a-question). Defaults to `False`.
 * `SIGNAL_NUMBER`: The value of the phone number (including area code) you intend to use for Signal (blurb integration). Example value: +12024566213
 * `WEBAPP_USERNAME`: The value of the username you intend to use for your journaling. The blurb integration will attach your blurbs to this user.
 * `OLLAMA_API_URL`: The URL of your local Ollama API endpoint (e.g., `http://ollama:11434/api/generate`).

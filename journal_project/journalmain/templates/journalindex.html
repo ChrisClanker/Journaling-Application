@@ -13,7 +13,9 @@
         <h1 class="mb-4">Journal Entries</h1>
         <a href="{% url 'journal_create' %}" class="btn btn-primary">Create New Journal!</a>
         <a href="{% url 'goals' %}" class="btn btn-info">Goal Journal!</a>
+        {% if use_ai %}
         <a href="{% url 'journal_question' %}" class="btn btn-secondary">Ask A Question!</a>
+        {% endif %}
         <button id="darkModeToggle" class="btn btn-secondary"><!-- Button content will be updated via JavaScript --></button>
 
 <!-- Script that sets dark mode if the cookie exists. -->
@@ -69,7 +71,13 @@
                     <td>{{ entry.user.username }}</td>
                     <td>{{ entry.date }}</td>
                     <td>{{ entry.title }}</td>
-                    <td>{{ entry.mood }}</td>
+                    <td>
+                        {% if entry.mood %}
+                            {{ entry.mood }}
+                        {% else %}
+                            <span class="text-muted">No mood set</span>
+                        {% endif %}
+                    </td>
 <!--                    <td>{{ entry.created_at }}</td> -->
 <!--                    <td>{{ entry.updated_at }}</td> -->
                     <td>
