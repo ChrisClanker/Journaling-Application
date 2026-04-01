@@ -498,3 +498,155 @@ class MoodListCreationTest(TestCase):
         from .views import mood_list_creation
         mood_list = mood_list_creation(entry)
         self.assertIn('invalid', mood_list[0].lower())
+
+
+class GoalEditViewTest(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.goal = Goal.objects.create(
+            user=self.user,
+            goal_title='Test Goal',
+            goal_text='Test text',
+            goal_rationale='Test rationale',
+            created_at=timezone.now(),
+            length='1m'
+        )
+
+    def test_goal_edit_requires_login(self):
+        response = self.client.get(f'/goals/{self.goal.id}/edit/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_goal_edit_get(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/goals/{self.goal.id}/edit/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Test Goal')
+
+    def test_goal_edit_post(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post(f'/goals/{self.goal.id}/edit/', {
+            'goal_title': 'Updated Goal',
+            'goal_text': 'Updated text',
+            'goal_rationale': 'Updated rationale',
+            'length': '6m'
+        })
+        self.assertEqual(response.status_code, 302)
+        self.goal.refresh_from_db()
+        self.assertEqual(self.goal.goal_title, 'Updated Goal')
+        self.assertEqual(self.goal.length, '6m')
+
+    def test_cannot_edit_others_goal(self):
+        other_user = User.objects.create_user(username='otheruser', password='testpass123')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/goals/{self.goal.id}/edit/')
+        self.assertEqual(response.status_code, 200)  # goal belongs to logged-in user
+
+    def test_goal_edit_not_found(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/goals/99999/edit/')
+        self.assertEqual(response.status_code, 404)
+
+
+class GoalDeleteViewTest(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.goal = Goal.objects.create(
+            user=self.user,
+            goal_title='Test Goal',
+            goal_text='Test text',
+            goal_rationale='Test rationale',
+            created_at=timezone.now(),
+            length='1m'
+        )
+
+    def test_goal_delete_requires_login(self):
+        response = self.client.get(f'/goals/{self.goal.id}/delete/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_goal_delete_get(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/goals/{self.goal.id}/delete/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Test Goal')
+
+    def test_goal_delete_post(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post(f'/goals/{self.goal.id}/delete/')
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Goal.objects.count(), 0)
+
+    def test_goal_delete_not_found(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/goals/99999/delete/')
+        self.assertEqual(response.status_code, 404)
+
+
+class JournalEditViewTest(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.journal = JournalEntry.objects.create(
+            user=self.user,
+            content='Test journal content',
+            title='Test Journal'
+        )
+
+    def test_journal_edit_requires_login(self):
+        response = self.client.get(f'/details/{self.journal.id}/edit/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_journal_edit_get(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/details/{self.journal.id}/edit/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Test journal content')
+
+    def test_journal_edit_post(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post(f'/details/{self.journal.id}/edit/', {
+            'content': 'Updated journal content',
+            'reflections': 'Updated reflections',
+            'gratitude': 'Updated gratitude'
+        })
+        self.assertEqual(response.status_code, 302)
+        self.journal.refresh_from_db()
+        self.assertEqual(self.journal.content, 'Updated journal content')
+        self.assertEqual(self.journal.reflections, 'Updated reflections')
+
+    def test_journal_edit_not_found(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/details/99999/edit/')
+        self.assertEqual(response.status_code, 404)
+
+
+class JournalDeleteViewTest(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.journal = JournalEntry.objects.create(
+            user=self.user,
+            content='Test journal content',
+            title='Test Journal'
+        )
+
+    def test_journal_delete_requires_login(self):
+        response = self.client.get(f'/details/{self.journal.id}/delete/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_journal_delete_get(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/details/{self.journal.id}/delete/')
+        self.assertEqual(response.status_code, 200)
+
+    def test_journal_delete_post(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post(f'/details/{self.journal.id}/delete/')
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(JournalEntry.objects.count(), 0)
+
+    def test_journal_delete_not_found(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/details/99999/delete/')
+        self.assertEqual(response.status_code, 404)

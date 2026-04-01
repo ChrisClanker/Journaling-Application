@@ -10,9 +10,13 @@ urlpatterns = [
     path('reports/<int:id>/', views.report_detail, name='report_detail'),  
     path('journals/create.html', views.journal_create, name='journal_create'),
     path('journals/ask.html', views.journal_question, name='journal_question'),
+    path('details/<int:id>/edit/', views.journal_edit, name='journal_edit'),
+    path('details/<int:id>/delete/', views.journal_delete, name='journal_delete'),
     path('goals/', views.goals, name='goals'),
     path('goals/create.html', views.goal_create, name='goal_create'),
     path('goals/<int:id>/', views.goal_detail, name='goal_detail'),  
+    path('goals/<int:id>/edit/', views.goal_edit, name='goal_edit'),
+    path('goals/<int:id>/delete/', views.goal_delete, name='goal_delete'),
     path('', views.journals, name='journals'),
 
 ]

@@ -134,6 +134,29 @@ def journal_create(request):
         blurbs = list(Blurb.objects.filter(user=request.user, journalEntry=None))
         return render(request, 'journal_submit.html', {'form':form, 'blurbs' : blurbs})
 
+
+@login_required
+def journal_edit(request, id):
+    entry = get_object_or_404(JournalEntry, id=id, user=request.user)
+    if request.method == "POST":
+        form = JournalForm(request.POST, instance=entry)
+        if form.is_valid():
+            form.save()
+            return HttpResponseRedirect(f"/details/{id}/")
+        return render(request, 'journal_edit.html', {'form': form, 'entry': entry})
+    else:
+        form = JournalForm(instance=entry)
+        return render(request, 'journal_edit.html', {'form': form, 'entry': entry})
+
+
+@login_required
+def journal_delete(request, id):
+    entry = get_object_or_404(JournalEntry, id=id, user=request.user)
+    if request.method == "POST":
+        entry.delete()
+        return HttpResponseRedirect("/journals/")
+    return render(request, 'journal_confirm_delete.html', {'entry': entry})
+
 @login_required
 def report_detail(request, id):
     report_entry = get_object_or_404(Report, id=id, user=request.user)
@@ -204,4 +227,27 @@ def goal_detail(request, id):
         expiration_date_str = expiration_date.strftime('%Y-%m-%d')
 
     return render(request, 'goal_detail.html', {'goal' : goal_entry, 'expired': expired, 'remaining_time': remaining_time, 'expiration_date_str': expiration_date_str,})
+
+
+@login_required
+def goal_edit(request, id):
+    goal_entry = get_object_or_404(Goal, id=id, user=request.user)
+    if request.method == "POST":
+        form = GoalForm(request.POST, instance=goal_entry)
+        if form.is_valid():
+            form.save()
+            return HttpResponseRedirect("/goals/")
+        return render(request, 'goal_edit.html', {'form': form, 'goal': goal_entry})
+    else:
+        form = GoalForm(instance=goal_entry)
+        return render(request, 'goal_edit.html', {'form': form, 'goal': goal_entry})
+
+
+@login_required
+def goal_delete(request, id):
+    goal_entry = get_object_or_404(Goal, id=id, user=request.user)
+    if request.method == "POST":
+        goal_entry.delete()
+        return HttpResponseRedirect("/goals/")
+    return render(request, 'goal_confirm_delete.html', {'goal': goal_entry})
 

@@ -68,6 +68,8 @@
         <hr>
         <p class="text-muted">Created at: {{ goal.created_at }}</p>
 
+        <a href="{% url 'goal_edit' goal.id %}" class="btn btn-warning mt-3">Edit Goal</a>
+        <a href="{% url 'goal_delete' goal.id %}" class="btn btn-danger mt-3">Delete Goal</a>
         <a href="{% url 'goals' %}" class="btn btn-primary mt-3">Back to Goals</a>
     </div>
 

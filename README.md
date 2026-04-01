@@ -56,21 +56,23 @@ The docker compose references an env file. In the repository, the one that's inc
 * `WEBAPP_USERNAME`: The value of the username you intend to use for your journaling. The blurb integration will attach your blurbs to this user.
 
 ### Provisioning the database
-(This is old and out of date - I am now using postgres)
-The database, by default, is created when the docker container is built and stored in the docker container. The database is initially populated with the username `joe` and password `testuser`. If you get an error similar to "Are you trying to mount a file on a folder or vice versa?" from docker, run the following commands:
-```bash
-docker compose down
-rm -r .data/db.sqlite3
-touch .data/db.dqlite3
-docker compose up -d
-docker cp django-docker:/app/sqlite3_init ./.data/db.sqlite3_init
-docker compose down
-mv ./.data/db.sqlite3_init ./.data/db.sqlite3
-```
-You should then be able to run the webapp, no problem. Note that the AI integration may not work for a little while - it'll automatically queue the downloading of the deepseek model after the first journal is written.
+The application uses PostgreSQL for data persistence. The database is provisioned automatically when you run `docker compose up`. The docker compose file includes the necessary PostgreSQL container configuration.
+
+### Environment Variables
+The docker compose references an env file. In the repository, the one that's included has all the ENV values you need, however, you'll need to set them yourself. The following values are required:
+* `SECRET_KEY`: The value of the secret key for the Django webapp. Should be set to a random 64 hexadecimal value.
+* `SIGNAL_NUMBER`: The value of the phone number (including area code) you intend to use for Signal (blurb integration). Example value: +12024566213
+* `WEBAPP_USERNAME`: The value of the username you intend to use for your journaling. The blurb integration will attach your blurbs to this user.
+* `OLLAMA_API_URL`: The URL of your local Ollama API endpoint (e.g., `http://ollama:11434/api/generate`).
+* `OLLAMA_MODEL`: The name of the Ollama model to use for AI processing (e.g., `deepseek-r1:14b`).
 
 ---
 
+### Signal Setup
+To set up Signal integration for blurbs, you'll need to trust the receiving number and send a test message. Replace the placeholder values with your actual numbers:
+
+```bash
 signal-cli --config /home/.local/share/signal-cli -a <number-sending-from> trust -a <number-sending-to>
 signal-cli --config /home/.local/share/signal-cli -a <number-sending-from> send <number-to-trust> -m "test"
+```
 
