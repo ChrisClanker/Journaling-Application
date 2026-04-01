@@ -1,5 +1,7 @@
 from django.shortcuts import render, get_object_or_404
 from django.http import HttpResponse, HttpResponseRedirect
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth import authenticate, login
 from .models import JournalEntry, Blurb, Report, Goal
 import json
 from .forms import JournalForm, AskJournalForm, GoalForm
@@ -56,10 +58,24 @@ def mood_list_creation(entry: JournalEntry):
     #print(return_list)
     return return_list
 
+@login_required
 def journals(request):
     journal_entries = JournalEntry.objects.filter(user=request.user).order_by('-date')
     return render(request, 'journalindex.html', {'journal_entries': journal_entries}) #HttpResponse("Hello world!")
 
+def login_view(request):
+    if request.method == 'POST':
+        username = request.POST.get('username')
+        password = request.POST.get('password')
+        user = authenticate(request, username=username, password=password)
+        if user is not None:
+            login(request, user)
+            return HttpResponseRedirect('/journals/')
+        else:
+            return render(request, 'login.html', {'error': 'Invalid credentials'})
+    return render(request, 'login.html')
+
+@login_required
 def journal_question(request):
     if request.method == "POST":
         form = AskJournalForm(request.POST, user=request.user)
@@ -81,11 +97,13 @@ def journal_question(request):
         form = AskJournalForm(user=request.user)
         return render(request, 'journal_ask.html', {'form': form})
 
+@login_required
 def journal_detail(request, id):
     entry = get_object_or_404(JournalEntry, id=id, user=request.user)
     mood = mood_list_creation(entry)
     return render(request, 'journal_detail.html', {'entry': entry, 'moods' : mood})
 
+@login_required
 def journal_create(request):
     if request.method == "POST":
         # create a form instance and populate it with data from the request:
@@ -115,11 +133,13 @@ def journal_create(request):
         blurbs = list(Blurb.objects.filter(user=request.user, journalEntry=None))
         return render(request, 'journal_submit.html', {'form':form, 'blurbs' : blurbs})
 
+@login_required
 def report_detail(request, id):
     report_entry = get_object_or_404(Report, id=id, user=request.user)
     return render(request, 'report_detail.html', {'report_entry' : report_entry})
 
 #     path('goals/', views.goals, name='goals'),
+@login_required
 def goals(request):
     # TODO: Find a better order-by
     goal_entries = Goal.objects.filter(user=request.user) #.order_by('-created_at')
@@ -127,6 +147,7 @@ def goals(request):
 
 
 #    path('goals/create.html', views.goals_create, name='goals_create'),
+@login_required
 def goal_create(request):
     goal_entries = Goal.objects.filter(user=request.user) #.order_by('-created_at')
     if request.method == "POST":
@@ -158,6 +179,7 @@ def goal_create(request):
 
 
 #    path('goals/<int:id>/', views.goals_detail, name='goals_detail'),  
+@login_required
 def goal_detail(request, id):
     goal_entry = get_object_or_404(Goal, id=id, user=request.user)
     today = timezone.now()

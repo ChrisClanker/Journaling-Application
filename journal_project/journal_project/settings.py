@@ -76,20 +76,24 @@ WSGI_APPLICATION = 'journal_project.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/3.2/ref/settings/#databases
 
-DATABASES = {
-#    'default': {
-#        'ENGINE': 'django.db.backends.sqlite3',
-#        'NAME': BASE_DIR / 'db.sqlite3',
-#    }
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql_psycopg2',
-        'NAME': os.environ.get("JOURNAL_APP_DB_NAME"),
-        'USER': os.environ.get("JOURNAL_APP_DB_USER_NAME"),
-        'PASSWORD': os.environ.get("JOURNAL_APP_DB_PASSWORD"),
-        'HOST': os.environ.get("JOURNAL_APP_DB_HOST"),
-        'PORT': os.environ.get("JOURNAL_APP_DB_PORT"),
+if os.environ.get("JOURNAL_APP_DB_HOST"):
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql_psycopg2',
+            'NAME': os.environ.get("JOURNAL_APP_DB_NAME"),
+            'USER': os.environ.get("JOURNAL_APP_DB_USER_NAME"),
+            'PASSWORD': os.environ.get("JOURNAL_APP_DB_PASSWORD"),
+            'HOST': os.environ.get("JOURNAL_APP_DB_HOST"),
+            'PORT': os.environ.get("JOURNAL_APP_DB_PORT"),
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 
 # Password validation
@@ -134,3 +138,7 @@ STATIC_URL = '/static/'
 # https://docs.djangoproject.com/en/3.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+LOGIN_URL = '/login/'
+LOGIN_REDIRECT_URL = '/journals/'
+LOGOUT_REDIRECT_URL = '/login/'
