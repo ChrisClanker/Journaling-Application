@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
+from django.core.validators import MinValueValidator, MaxValueValidator
 
 # Blurbs are messages sent throughout the day when
 # things happen that remind you to journal about the topic.
@@ -31,6 +32,11 @@ class Goal(models.Model):
         default='1m',  # Set a default value if needed
     )
     parent_goal = models.ForeignKey("self", on_delete=models.SET_NULL, blank=True, null=True)
+    progress = models.IntegerField(
+        default=0,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text='Progress percentage (0-100)'
+    )
 
 class Report(models.Model):
     # The user field exists so we know who "owns" the report, and

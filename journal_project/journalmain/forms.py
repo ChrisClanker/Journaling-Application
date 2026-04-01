@@ -74,9 +74,16 @@ class AskJournalForm(forms.Form):
     
 
 class GoalForm(forms.ModelForm):
+    progress = forms.IntegerField(
+        min_value=0,
+        max_value=100,
+        required=False,
+        widget=forms.NumberInput(attrs={'placeholder': '0-100'})
+    )
+
     class Meta:
         model = Goal
-        fields = ('goal_title', 'goal_text', 'goal_rationale', 'length', 'parent_goal')
+        fields = ('goal_title', 'goal_text', 'goal_rationale', 'length', 'parent_goal', 'progress')
 
     def clean(self):
         cleaned_data = super().clean()
