@@ -5,94 +5,56 @@ Tasks identified from reviewing the README.md and codebase for the Django Journa
 
 ---
 
-## Completed Tasks
+## Phase 0 — Foundation (Completed)
 
-### 1. ~~Fix `created_at` fields using `auto_now` instead of `auto_now_add`~~ ✅
-**Status:** COMPLETED
-**Commit:** 4eec386
-**Summary:** Changed `Blurb.created_at` and `JournalEntry.created_at` from `auto_now` to `auto_now_add`. Renamed `Goal.goalCreated` to `Goal.created_at`. Added migration `0002`. All 45+ tests pass.
+| Task | Status |
+|------|--------|
+| Fix `created_at` fields (`auto_now` → `auto_now_add`) | ✅ Done |
+| Add logout view and URL route | ✅ Done |
+| Make Ollama API URL configurable via env vars | ✅ Done |
+| Add `USE_AI` environment variable (default: False) | ✅ Done |
+| Fix goal list ordering | ✅ Done |
+| Add goal edit/delete functionality | ✅ Done |
+| Add journal edit/delete functionality | ✅ Done |
+| Add local development setup instructions to README | ✅ Done |
+| Add `start.sh` one-command setup script | ✅ Done |
 
-### 2. ~~Add logout view and URL route~~ ✅
-**Status:** COMPLETED
-**Commit:** 4eec386
-**Summary:** Added `/logout/` route using Django's built-in `LogoutView`. Configured `LOGOUT_URL` setting. Redirects to `/login/` after logout.
+## Phase 1 — Usability & Discoverability (Completed)
 
-### 3. ~~Make Ollama API URL configurable via environment variable~~ ✅
-**Status:** COMPLETED
-**Commit:** 4eec386
-**Summary:** Added `OLLAMA_API_URL` and `OLLAMA_MODEL` environment variables to settings.py with sensible defaults. Updated views.py to use `settings.OLLAMA_API_URL` and `settings.OLLAMA_MODEL`.
+| Feature | Status | Tests |
+|---------|--------|-------|
+| **1. Dashboard** — Stats, streaks, recent entries, quick actions | ✅ Done | 10 |
+| **2. Journal Search & Filtering** — Text search, mood/date/tag filters | ✅ Done | 11 |
+| **3. Mood Calendar** — Heatmap visualization, clickable cells | ✅ Done | 8 |
+| **4. Tags System** — Tag model, ManyToMany, CRUD views | ✅ Done | 14 |
+| **5. Bookmarks** — Toggle, display on dashboard/detail | ✅ Done | 6 |
+| **6. Export Journals** — JSON and Markdown download | ✅ Done | 10 |
+| **7. Streak Detail Page** — All streaks, current/longest stats | ✅ Done | 9 |
+| **8. Profile Management** — Profile page, password change | ✅ Done | 14 |
+| **9. Goal Progress Tracking** — 0-100% field, progress bar | ✅ Done | 15 |
+| **10. Weekly Report Command** — `generate_weekly_report` management command | ✅ Done | 8 |
+| **Pagination** — All listing views paginated | ✅ Done | 12 |
+| **Navigation Bar** — Consistent nav across all pages | ✅ Done | 12 |
+| **Code Polish** — Removed debug prints, updated testing.md | ✅ Done | 1 |
 
-### 4. ~~Add tests for new functionality~~ ✅
-**Status:** COMPLETED
-**Commits:** 84e602c, ca016fc, bf5d410
-**Summary:** Added 26 new tests across 7 test classes covering goal edit/delete, journal edit/delete, ownership verification, USE_AI disabled mode, and JournalForm conditional fields. Total test count: 71 tests, all passing.
+## Phase 2 — Intelligence & Insights (Future)
 
-### 5. ~~Add goal edit, update, and delete functionality~~ ✅
-**Status:** COMPLETED
-**Commit:** 84e602c
-**Summary:** Added `goal_edit` and `goal_delete` views with URL routes, templates, and tests. Edit/delete buttons added to goal detail page.
+| Feature | Priority | Status |
+|---------|----------|--------|
+| AI-Powered Goal Linking | Low | 📋 Planned |
+| Daily Suggestions/Feedback | Low | 📋 Planned |
+| Trend Analysis | Low | 📋 Planned |
+| Sentiment Over Time Graph | Low | 📋 Planned |
+| Annual Review | Low | 📋 Planned |
 
-### 6. ~~Fix goal list ordering~~ ✅
-**Status:** COMPLETED
-**Commit:** 4eec386
-**Summary:** Added `.order_by('-created_at')` to `goals()` and `goal_create()` views. Removed TODO comment.
+## Phase 3 — Polish & Scale (Future)
 
-### 7. ~~Add journal edit and delete functionality~~ ✅
-**Status:** COMPLETED
-**Commit:** 84e602c
-**Summary:** Added `journal_edit` and `journal_delete` views with URL routes, templates, and tests. Edit/delete buttons added to journal detail page.
-
-### 8. ~~Update README.md with corrected database provisioning instructions~~ ✅
-**Status:** COMPLETED
-**Commit:** 84e602c
-**Summary:** Removed outdated SQLite instructions. Added PostgreSQL setup documentation. Consolidated environment variable documentation into a single comprehensive section. Organized Signal setup into proper subsection.
-
-### 13. ~~Add USE_AI environment variable (default: False) to disable AI features~~ ✅
-**Status:** COMPLETED
-**Commits:** (latest batch)
-**Summary:** Added `USE_AI` setting to settings.py that defaults to `False`. When disabled:
-- `journal_question` view redirects to `/journals/`
-- Journal titles fall back to `"Journal Entry - {date}"` format
-- Mood selection uses keyword checkboxes (24 mood options) instead of AI extraction
-- "Ask A Question" button is hidden from the journal index
-- Added 7 dedicated tests for USE_AI behaviors
-- Added comprehensive local development instructions to README.md
-
----
-
-## Remaining / Future Tasks
-
-### 9. Add journal goal reference feature
-**Priority:** Low
-**Files:** Multiple
-**Issue:** README mentions AI should scan journals for references to goals and link them. The `Goal` model already has a ManyToMany relationship to `JournalEntry` but it's not used.
-**Acceptance Criteria:**
-- Implement automatic goal linking when journals are created
-- Display linked goals on journal detail page
-- Display linked journals on goal detail page
-
-### 10. Add weekly summary automation
-**Priority:** Low
-**Files:** Multiple
-**Issue:** README mentions weekly summaries generated by AI, but there's no automated scheduling visible in the codebase.
-**Acceptance Criteria:**
-- Document or implement automated weekly summary generation
-- Add management command for generating summaries
-
-### 11. Add feedback/suggestions feature
-**Priority:** Low
-**Issue:** README mentions AI should give suggestions for things to do the next day after a journal is written.
-**Acceptance Criteria:**
-- Implement AI-powered daily suggestions after journal submission
-- Display suggestions on journal detail or dashboard page
-
-### 12. Add trends analysis
-**Priority:** Low
-**Issue:** README mentions tracking topics over time to see how they fade or persist.
-**Acceptance Criteria:**
-- Implement topic extraction from journals
-- Create trends visualization or report
-- Track topic frequency over time
+| Feature | Priority | Status |
+|---------|----------|--------|
+| Mobile-Responsive Templates | Medium | 📋 Planned |
+| Data Import (Day One, JSON, text) | Low | 📋 Planned |
+| Encryption at Rest | Low | 📋 Planned |
+| PWA Support | Low | 📋 Planned |
 
 ---
 
@@ -100,18 +62,27 @@ Tasks identified from reviewing the README.md and codebase for the Django Journa
 
 | Metric | Value |
 |--------|-------|
-| Total Tests | 71 |
-| Passing | 71 |
+| Total Tests | 218 |
+| Passing | 218 |
 | Failing | 0 |
-| Test Classes | 20 |
+| Test Classes | 32 |
 | Last Run | 2026-04-01 |
 
-## Commit History
+## Technical Debt
+
+- [ ] Extract magic strings (mood colors, goal length choices) into constants module
+- [ ] Add rate limiting for AI endpoints
+- [ ] Consider switching from `CharField` to `TextField` for long content fields
+- [ ] Optimize `all_moods` query in journals view (currently iterates all entries)
+
+## Commit History (Phase 1)
 
 | Commit | Description |
 |--------|-------------|
+| 055aac0 | Add remaining Phase 1 files: goal progress model/migration, password change templates, PLAN.md |
+| 282f55e | Features 9-10: Weekly report management command, pagination, nav bar, and polish |
+| 7caa349 | Implement Phase 1 Features 1-4: Dashboard, Search/Filter, Mood Calendar, Tags |
+| 9f2166e | Add USE_AI environment variable to disable AI features |
 | bf5d410 | Add tests for USE_AI disabled mode and JournalForm conditional fields |
-| (latest) | Add USE_AI environment variable, mood keyword selection, local dev docs |
-| ca016fc | Fix test coverage and consolidate README env var docs |
 | 84e602c | Add goal and journal edit/delete functionality with tests and updated README |
 | 4eec386 | Fix created_at fields, add Ollama config, logout view, and goal ordering |
