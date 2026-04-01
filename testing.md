@@ -66,7 +66,7 @@ The test suite covers:
 - `BlurbModelTest` - Blurb creation and journal associations
 - `ReportModelTest` - Report creation and type choices
 - `MoodListCreationTest` - Mood list parsing and display
-- `ReportModelTest` - Report model tests
+- `TagModelTest` - Tag model tests
 
 ### Forms (3 test classes)
 - `JournalFormTest` - Journal entry form validation
@@ -82,6 +82,21 @@ The test suite covers:
 - `GoalCreateViewTest` - Goal creation
 - `GoalDetailViewTest` - Goal detail view
 - `ReportDetailViewTest` - Report detail view
+
+### Management Commands (1 test class)
+- `GenerateWeeklyReportCommandTest` - Weekly report generation command, user filtering, duplicate detection, entry linking, content validation
+
+### New Views (1 test class)
+- `ReportListViewTest` - Report listing, access control, user scoping
+
+### Pagination (1 test class)
+- `PaginationTest` - Pagination on journals (15/page), goals (10/page), reports (10/page), tags (20/page), tag detail (15/page), filter preservation, edge cases
+
+### Navigation (1 test class)
+- `NavigationBarTest` - Nav bar inclusion across all templates, link verification
+
+### Code Quality (1 test class)
+- `NoDebugPrintTest` - Verifies no debug print() statements remain in views.py
 
 ## Test Database
 

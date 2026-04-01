@@ -41,6 +41,7 @@
 </script>
 
 <div class="container mt-5">
+    {% include 'nav.html' %}
     <h1 class="mb-4">My Journal Dashboard</h1>
     <button id="darkModeToggle" class="btn btn-secondary mb-3"></button>
 
@@ -50,7 +51,16 @@
         <a href="{% url 'goals' %}" class="btn btn-info me-2">View Goals</a>
         <a href="{% url 'journals' %}" class="btn btn-secondary me-2">All Entries</a>
         <a href="{% url 'mood_calendar' %}" class="btn btn-warning me-2">Mood Calendar</a>
-        <a href="{% url 'tag_list' %}" class="btn btn-outline-info">View Tags</a>
+        <a href="{% url 'tag_list' %}" class="btn btn-outline-info me-2">View Tags</a>
+        <a href="{% url 'streak_detail' %}" class="btn btn-outline-success me-2">View Streaks</a>
+        <a href="{% url 'profile' %}" class="btn btn-outline-secondary me-2">Profile</a>
+    </div>
+
+    <!-- Export Section -->
+    <div class="mb-4">
+        <h5>Export Journals</h5>
+        <a href="{% url 'export_journals' %}?format=json" class="btn btn-outline-primary me-2">Export as JSON</a>
+        <a href="{% url 'export_journals' %}?format=markdown" class="btn btn-outline-primary">Export as Markdown</a>
     </div>
 
     <!-- Stats Cards -->

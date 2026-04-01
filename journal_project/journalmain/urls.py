@@ -1,5 +1,5 @@
 from django.urls import path
-from django.contrib.auth.views import LogoutView
+from django.contrib.auth.views import LogoutView, PasswordChangeView, PasswordChangeDoneView
 from . import views
 
 urlpatterns = [
@@ -8,6 +8,7 @@ urlpatterns = [
     path('', views.dashboard, name='dashboard'),
     path('journals/', views.journals, name='journals'),
     path('details/<int:id>/', views.journal_detail, name='journal_detail'),
+    path('reports/', views.report_list, name='report_list'),
     path('reports/<int:id>/', views.report_detail, name='report_detail'),
     path('journals/create.html', views.journal_create, name='journal_create'),
     path('journals/ask.html', views.journal_question, name='journal_question'),
@@ -22,4 +23,14 @@ urlpatterns = [
     path('mood-calendar/', views.mood_calendar, name='mood_calendar'),
     path('tags/', views.tag_list, name='tag_list'),
     path('tags/<int:id>/', views.tag_detail, name='tag_detail'),
+    path('export/', views.export_journals, name='export_journals'),
+    path('streaks/', views.streak_detail, name='streak_detail'),
+    path('profile/', views.profile, name='profile'),
+    path('profile/password-change/', PasswordChangeView.as_view(
+        template_name='password_change.html',
+        success_url='/profile/password-change-done/'
+    ), name='password_change'),
+    path('profile/password-change-done/', PasswordChangeDoneView.as_view(
+        template_name='password_change_done.html'
+    ), name='password_change_done'),
 ]

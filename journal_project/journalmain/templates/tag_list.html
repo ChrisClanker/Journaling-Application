@@ -35,6 +35,7 @@
 </script>
 
 <div class="container mt-5">
+    {% include 'nav.html' %}
     <h1 class="mb-4">Tags</h1>
     <a href="{% url 'dashboard' %}" class="btn btn-secondary mb-3">Back to Dashboard</a>
     <button id="darkModeToggle" class="btn btn-secondary mb-3 ms-2"></button>
@@ -56,6 +57,21 @@
         </div>
     {% else %}
         <p class="text-muted">No tags yet. Add tags to your journal entries to organize them!</p>
+    {% endif %}
+
+    <!-- Pagination -->
+    {% if page_obj.has_other_pages %}
+    <nav>
+        <ul class="pagination justify-content-center">
+            {% if page_obj.has_previous %}
+                <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}">Previous</a></li>
+            {% endif %}
+            <li class="page-item active"><span class="page-link">{{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span></li>
+            {% if page_obj.has_next %}
+                <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}">Next</a></li>
+            {% endif %}
+        </ul>
+    </nav>
     {% endif %}
 </div>
 

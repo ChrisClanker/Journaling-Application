@@ -1394,3 +1394,929 @@ class CalendarDataGenerationTest(TestCase):
             if day and day.get('mood') == 'happy':
                 self.assertEqual(day['entry_id'], 42)
                 break
+
+
+# ============================================================
+# Tests for Feature 5: Export Journals (JSON/Markdown)
+# ============================================================
+
+class ExportJournalsTest(TestCase):
+    """Tests for the export journals feature."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.entry1 = JournalEntry.objects.create(
+            user=self.user, content='Entry 1 content', title='Entry One',
+            mood='["happy"]', reflections='Reflection 1', gratitude='Gratitude 1'
+        )
+        self.entry2 = JournalEntry.objects.create(
+            user=self.user, content='Entry 2 content', title='Entry Two',
+            mood='["sad"]'
+        )
+
+    def test_export_requires_login(self):
+        response = self.client.get('/export/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_export_json_default(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/export/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/json')
+        data = json.loads(response.content)
+        self.assertEqual(len(data), 2)
+        self.assertEqual(data[0]['title'], 'Entry One')
+        self.assertEqual(data[0]['content'], 'Entry 1 content')
+        self.assertEqual(data[0]['mood'], '["happy"]')
+        self.assertEqual(data[0]['reflections'], 'Reflection 1')
+        self.assertEqual(data[0]['gratitude'], 'Gratitude 1')
+
+    def test_export_json_includes_bookmarked(self):
+        self.entry1.bookmarked = True
+        self.entry1.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/export/')
+        data = json.loads(response.content)
+        self.assertTrue(data[0]['bookmarked'])
+
+    def test_export_json_includes_tags(self):
+        from .models import Tag
+        tag = Tag.objects.create(user=self.user, name='work')
+        self.entry1.tags.add(tag)
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/export/')
+        data = json.loads(response.content)
+        self.assertIn('work', data[0]['tags'])
+
+    def test_export_markdown(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/export/', {'format': 'markdown'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'text/markdown')
+        content = response.content.decode('utf-8')
+        self.assertIn('Entry One', content)
+        self.assertIn('Entry Two', content)
+        self.assertIn('Entry 1 content', content)
+        self.assertIn('Reflection 1', content)
+        self.assertIn('Gratitude 1', content)
+        self.assertIn('Total entries: 2', content)
+
+    def test_export_markdown_includes_tags(self):
+        from .models import Tag
+        tag = Tag.objects.create(user=self.user, name='work')
+        self.entry1.tags.add(tag)
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/export/', {'format': 'markdown'})
+        content = response.content.decode('utf-8')
+        self.assertIn('work', content)
+
+    def test_export_only_shows_own_entries(self):
+        other_user = User.objects.create_user(username='otheruser', password='testpass123')
+        JournalEntry.objects.create(user=other_user, content='Other entry', title='Other Entry')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/export/')
+        data = json.loads(response.content)
+        self.assertEqual(len(data), 2)
+        titles = [d['title'] for d in data]
+        self.assertNotIn('Other Entry', titles)
+
+    def test_export_json_has_content_disposition(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/export/')
+        self.assertIn('attachment', response['Content-Disposition'])
+        self.assertIn('.json', response['Content-Disposition'])
+
+    def test_export_markdown_has_content_disposition(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/export/', {'format': 'markdown'})
+        self.assertIn('attachment', response['Content-Disposition'])
+        self.assertIn('.md', response['Content-Disposition'])
+
+    def test_export_empty_user(self):
+        """Export should work even with no entries."""
+        new_user = User.objects.create_user(username='emptyuser', password='testpass123')
+        self.client.login(username='emptyuser', password='testpass123')
+        response = self.client.get('/export/')
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.content)
+        self.assertEqual(len(data), 0)
+
+
+# ============================================================
+# Tests for Feature 6: Streak Tracking Enhancement
+# ============================================================
+
+class StreakDetailViewTest(TestCase):
+    """Tests for the streak detail view."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_streak_detail_requires_login(self):
+        response = self.client.get('/streaks/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_streak_detail_loads(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/streaks/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Streak Tracking')
+
+    def test_streak_detail_shows_current_streak(self):
+        today = timezone.now().date()
+        JournalEntry.objects.create(user=self.user, content='Today', date=today)
+        JournalEntry.objects.create(user=self.user, content='Yesterday', date=today - timedelta(days=1))
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/streaks/')
+        self.assertContains(response, 'Current Streak')
+
+    def test_streak_detail_shows_longest_streak(self):
+        today = timezone.now().date()
+        for i in range(5):
+            JournalEntry.objects.create(user=self.user, content=f'Day {i}', date=today - timedelta(days=i))
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/streaks/')
+        self.assertContains(response, 'Longest Streak')
+
+    def test_streak_detail_shows_total_days(self):
+        today = timezone.now().date()
+        JournalEntry.objects.create(user=self.user, content='Day 1', date=today)
+        JournalEntry.objects.create(user=self.user, content='Day 2', date=today - timedelta(days=5))
+        JournalEntry.objects.create(user=self.user, content='Day 3', date=today - timedelta(days=10))
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/streaks/')
+        self.assertContains(response, 'Total Journaling Days')
+
+    def test_streak_detail_shows_streaks_table(self):
+        today = timezone.now().date()
+        for i in range(3):
+            JournalEntry.objects.create(user=self.user, content=f'Day {i}', date=today - timedelta(days=i))
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/streaks/')
+        self.assertContains(response, 'Top Streaks')
+
+    def test_streak_detail_no_entries(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/streaks/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No streaks yet')
+
+    def test_streak_detail_only_shows_own_entries(self):
+        other_user = User.objects.create_user(username='otheruser', password='testpass123')
+        today = timezone.now().date()
+        for i in range(10):
+            JournalEntry.objects.create(user=other_user, content=f'Other Day {i}', date=today - timedelta(days=i))
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/streaks/')
+        self.assertContains(response, 'No streaks yet')
+
+    def test_streak_detail_multiple_streaks(self):
+        """Test that multiple separate streaks are calculated correctly."""
+        today = timezone.now().date()
+        # First streak: 5 days
+        for i in range(5):
+            JournalEntry.objects.create(user=self.user, content=f'Streak 1 Day {i}', date=today - timedelta(days=i))
+        # Gap of 3 days
+        # Second streak: 3 days
+        for i in range(3):
+            JournalEntry.objects.create(user=self.user, content=f'Streak 2 Day {i}', date=today - timedelta(days=8 + i))
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/streaks/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Top Streaks')
+
+
+# ============================================================
+# Tests for Feature 7: Password Change & Profile Management
+# ============================================================
+
+class ProfileViewTest(TestCase):
+    """Tests for the profile view."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123', email='test@example.com')
+
+    def test_profile_requires_login(self):
+        response = self.client.get('/profile/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_profile_loads(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/profile/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Profile')
+
+    def test_profile_shows_username(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/profile/')
+        self.assertContains(response, 'testuser')
+
+    def test_profile_shows_email(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/profile/')
+        self.assertContains(response, 'test@example.com')
+
+    def test_profile_shows_date_joined(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/profile/')
+        self.assertContains(response, 'Date Joined')
+
+    def test_profile_has_change_password_link(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/profile/')
+        self.assertContains(response, 'Change Password')
+
+    def test_profile_has_logout_link(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/profile/')
+        self.assertContains(response, 'Logout')
+
+
+class PasswordChangeViewTest(TestCase):
+    """Tests for the password change view."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_password_change_requires_login(self):
+        response = self.client.get('/profile/password-change/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_password_change_loads(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/profile/password-change/')
+        self.assertEqual(response.status_code, 200)
+
+    def test_password_change_success(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post('/profile/password-change/', {
+            'old_password': 'testpass123',
+            'new_password1': 'newpass123',
+            'new_password2': 'newpass123',
+        })
+        self.assertEqual(response.status_code, 302)
+        # Verify password was changed
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('newpass123'))
+
+    def test_password_change_wrong_old_password(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post('/profile/password-change/', {
+            'old_password': 'wrongpassword',
+            'new_password1': 'newpass123',
+            'new_password2': 'newpass123',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Old Password')
+
+    def test_password_change_mismatch(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post('/profile/password-change/', {
+            'old_password': 'testpass123',
+            'new_password1': 'newpass123',
+            'new_password2': 'differentpass',
+        })
+        self.assertEqual(response.status_code, 200)
+
+
+class PasswordChangeDoneViewTest(TestCase):
+    """Tests for the password change done view."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_password_change_done_requires_login(self):
+        response = self.client.get('/profile/password-change-done/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_password_change_done_loads(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/profile/password-change-done/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Password Changed Successfully')
+
+
+# ============================================================
+# Tests for Feature 8: Goal Progress Tracking
+# ============================================================
+
+class GoalProgressModelTest(TestCase):
+    """Tests for the progress field on Goal model."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_goal_default_progress_is_zero(self):
+        goal = Goal.objects.create(
+            user=self.user,
+            goal_title='Test Goal',
+            goal_text='Test text',
+            goal_rationale='Test rationale',
+            created_at=timezone.now(),
+            length='1m'
+        )
+        self.assertEqual(goal.progress, 0)
+
+    def test_goal_progress_can_be_set(self):
+        goal = Goal.objects.create(
+            user=self.user,
+            goal_title='Test Goal',
+            goal_text='Test text',
+            goal_rationale='Test rationale',
+            created_at=timezone.now(),
+            length='1m',
+            progress=50
+        )
+        self.assertEqual(goal.progress, 50)
+
+    def test_goal_progress_max_100(self):
+        goal = Goal.objects.create(
+            user=self.user,
+            goal_title='Test Goal',
+            goal_text='Test text',
+            goal_rationale='Test rationale',
+            created_at=timezone.now(),
+            length='1m',
+            progress=100
+        )
+        self.assertEqual(goal.progress, 100)
+
+
+class GoalProgressFormTest(TestCase):
+    """Tests for the progress field on GoalForm."""
+
+    def test_goal_form_has_progress_field(self):
+        form = GoalForm()
+        self.assertIn('progress', form.fields)
+
+    def test_goal_form_valid_with_progress(self):
+        data = {
+            'goal_title': 'Test Goal',
+            'goal_text': 'Test text',
+            'goal_rationale': 'Test rationale',
+            'length': '1m',
+            'progress': 75,
+        }
+        form = GoalForm(data=data)
+        self.assertTrue(form.is_valid())
+
+    def test_goal_form_valid_without_progress(self):
+        data = {
+            'goal_title': 'Test Goal',
+            'goal_text': 'Test text',
+            'goal_rationale': 'Test rationale',
+            'length': '1m',
+        }
+        form = GoalForm(data=data)
+        self.assertTrue(form.is_valid())
+
+    def test_goal_form_invalid_progress_too_high(self):
+        data = {
+            'goal_title': 'Test Goal',
+            'goal_text': 'Test text',
+            'goal_rationale': 'Test rationale',
+            'length': '1m',
+            'progress': 101,
+        }
+        form = GoalForm(data=data)
+        self.assertFalse(form.is_valid())
+
+    def test_goal_form_invalid_progress_negative(self):
+        data = {
+            'goal_title': 'Test Goal',
+            'goal_text': 'Test text',
+            'goal_rationale': 'Test rationale',
+            'length': '1m',
+            'progress': -1,
+        }
+        form = GoalForm(data=data)
+        self.assertFalse(form.is_valid())
+
+
+class GoalProgressViewTest(TestCase):
+    """Tests for goal views with progress field."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_goal_create_with_progress(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post('/goals/create.html', {
+            'goal_title': 'New Goal',
+            'goal_text': 'Goal description',
+            'goal_rationale': 'Why I want this',
+            'length': '1y',
+            'progress': 25,
+        })
+        self.assertEqual(response.status_code, 302)
+        goal = Goal.objects.get(user=self.user)
+        self.assertEqual(goal.progress, 25)
+
+    def test_goal_create_default_progress(self):
+        """When no progress is provided, it should default to 0."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post('/goals/create.html', {
+            'goal_title': 'New Goal',
+            'goal_text': 'Goal description',
+            'goal_rationale': 'Why I want this',
+            'length': '1y',
+        })
+        self.assertEqual(response.status_code, 302)
+        goal = Goal.objects.get(user=self.user)
+        self.assertEqual(goal.progress, 0)
+
+    def test_goal_edit_with_progress(self):
+        goal = Goal.objects.create(
+            user=self.user,
+            goal_title='Test Goal',
+            goal_text='Test text',
+            goal_rationale='Test rationale',
+            created_at=timezone.now(),
+            length='1m',
+            progress=10
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post(f'/goals/{goal.id}/edit/', {
+            'goal_title': 'Updated Goal',
+            'goal_text': 'Updated text',
+            'goal_rationale': 'Updated rationale',
+            'length': '6m',
+            'progress': 50,
+        })
+        self.assertEqual(response.status_code, 302)
+        goal.refresh_from_db()
+        self.assertEqual(goal.progress, 50)
+
+    def test_goal_detail_shows_progress(self):
+        goal = Goal.objects.create(
+            user=self.user,
+            goal_title='Test Goal',
+            goal_text='Test text',
+            goal_rationale='Test rationale',
+            created_at=timezone.now(),
+            length='1m',
+            progress=50
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/goals/{goal.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Progress')
+        self.assertContains(response, '50%')
+
+    def test_goal_detail_shows_progress_bar(self):
+        goal = Goal.objects.create(
+            user=self.user,
+            goal_title='Test Goal',
+            goal_text='Test text',
+            goal_rationale='Test rationale',
+            created_at=timezone.now(),
+            length='1m',
+            progress=75
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/goals/{goal.id}/')
+        self.assertContains(response, 'progress-bar')
+        self.assertContains(response, '75%')
+
+    def test_goal_detail_shows_completed_progress(self):
+        goal = Goal.objects.create(
+            user=self.user,
+            goal_title='Completed Goal',
+            goal_text='Done',
+            goal_rationale='Because',
+            created_at=timezone.now(),
+            length='1m',
+            progress=100
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/goals/{goal.id}/')
+        self.assertContains(response, '100%')
+        self.assertContains(response, 'bg-success')
+
+    def test_goalindex_shows_progress(self):
+        Goal.objects.create(
+            user=self.user,
+            goal_title='Test Goal',
+            goal_text='Test text',
+            goal_rationale='Test rationale',
+            created_at=timezone.now(),
+            length='1m',
+            progress=30
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/goals/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '30%')
+
+
+# ============================================================
+# Tests for Feature 9: Weekly Report Generation Management Command
+# ============================================================
+
+class GenerateWeeklyReportCommandTest(TestCase):
+    """Tests for the generate_weekly_report management command."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.today = timezone.now().date()
+
+    def test_command_creates_report_with_entries(self):
+        """Command should create a weekly report when entries exist."""
+        from django.core.management import call_command
+        from io import StringIO
+        JournalEntry.objects.create(user=self.user, content='Entry 1', date=self.today)
+        JournalEntry.objects.create(user=self.user, content='Entry 2', date=self.today - timedelta(days=1))
+        out = StringIO()
+        call_command('generate_weekly_report', stdout=out)
+        self.assertEqual(Report.objects.filter(user=self.user).count(), 1)
+        report = Report.objects.first()
+        self.assertEqual(report.type, 'w')
+        self.assertIn('Weekly Report', report.title)
+        self.assertIn('Weekly Summary', report.content)
+
+    def test_command_skips_when_no_entries(self):
+        """Command should skip users with no entries."""
+        from django.core.management import call_command
+        from io import StringIO
+        out = StringIO()
+        call_command('generate_weekly_report', stdout=out)
+        self.assertEqual(Report.objects.count(), 0)
+        output = out.getvalue()
+        self.assertIn('No journal entries', output)
+
+    def test_command_skips_duplicate_report(self):
+        """Command should skip if report already exists for the week."""
+        from django.core.management import call_command
+        from io import StringIO
+        JournalEntry.objects.create(user=self.user, content='Entry', date=self.today)
+        out = StringIO()
+        call_command('generate_weekly_report', stdout=out)
+        self.assertEqual(Report.objects.filter(user=self.user).count(), 1)
+        # Run again
+        out2 = StringIO()
+        call_command('generate_weekly_report', stdout=out2)
+        self.assertEqual(Report.objects.filter(user=self.user).count(), 1)
+        self.assertIn('already exists', out2.getvalue())
+
+    def test_command_with_user_flag(self):
+        """Command should only generate for specified user."""
+        from django.core.management import call_command
+        from io import StringIO
+        other_user = User.objects.create_user(username='other', password='testpass123')
+        JournalEntry.objects.create(user=self.user, content='My entry', date=self.today)
+        JournalEntry.objects.create(user=other_user, content='Other entry', date=self.today)
+        out = StringIO()
+        call_command('generate_weekly_report', user='testuser', stdout=out)
+        self.assertEqual(Report.objects.filter(user=self.user).count(), 1)
+        self.assertEqual(Report.objects.filter(user=other_user).count(), 0)
+
+    def test_command_with_nonexistent_user(self):
+        """Command should report error for nonexistent user."""
+        from django.core.management import call_command
+        from io import StringIO
+        err = StringIO()
+        call_command('generate_weekly_report', user='nonexistent', stderr=err)
+        self.assertIn('not found', err.getvalue())
+
+    def test_command_links_entries_to_report(self):
+        """Command should link journal entries to the generated report."""
+        from django.core.management import call_command
+        from io import StringIO
+        entry = JournalEntry.objects.create(user=self.user, content='Entry', date=self.today)
+        call_command('generate_weekly_report')
+        entry.refresh_from_db()
+        self.assertIsNotNone(entry.week_report)
+
+    def test_report_content_has_entry_count(self):
+        """Generated report should include entry count."""
+        from django.core.management import call_command
+        JournalEntry.objects.create(user=self.user, content='Entry 1', date=self.today)
+        JournalEntry.objects.create(user=self.user, content='Entry 2', date=self.today - timedelta(days=1))
+        JournalEntry.objects.create(user=self.user, content='Entry 3', date=self.today - timedelta(days=2))
+        call_command('generate_weekly_report')
+        report = Report.objects.first()
+        self.assertIn('3 journal entries', report.content)
+
+    def test_report_content_has_mood_summary(self):
+        """Generated report should include mood summary when moods are present."""
+        from django.core.management import call_command
+        JournalEntry.objects.create(user=self.user, content='Happy', date=self.today, mood='["happy"]')
+        JournalEntry.objects.create(user=self.user, content='Happy again', date=self.today - timedelta(days=1), mood='["happy"]')
+        call_command('generate_weekly_report')
+        report = Report.objects.first()
+        self.assertIn('Mood Summary', report.content)
+        self.assertIn('happy', report.content)
+
+
+# ============================================================
+# Tests for Feature 9: Report List View
+# ============================================================
+
+class ReportListViewTest(TestCase):
+    """Tests for the report list view."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.report = Report.objects.create(
+            user=self.user,
+            title='Weekly Report',
+            type='w',
+            content='Report content'
+        )
+
+    def test_report_list_requires_login(self):
+        response = self.client.get('/reports/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_report_list_loads(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/reports/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Weekly Report')
+
+    def test_report_list_only_shows_own_reports(self):
+        other_user = User.objects.create_user(username='other', password='testpass123')
+        Report.objects.create(user=other_user, title='Other Report', type='w', content='Other content')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/reports/')
+        self.assertContains(response, 'Weekly Report')
+        self.assertNotContains(response, 'Other Report')
+
+    def test_report_list_empty(self):
+        new_user = User.objects.create_user(username='empty', password='testpass123')
+        self.client.login(username='empty', password='testpass123')
+        response = self.client.get('/reports/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No reports yet')
+
+
+# ============================================================
+# Tests for Feature 10: Pagination
+# ============================================================
+
+class PaginationTest(TestCase):
+    """Tests for pagination on listing views."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_journals_pagination(self):
+        """Journals view should paginate at 15 entries per page."""
+        # Create 20 entries
+        for i in range(20):
+            JournalEntry.objects.create(user=self.user, content=f'Entry {i}', title=f'Title {i}')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/journals/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['journal_entries']), 15)
+        self.assertTrue(response.context['page_obj'].has_other_pages())
+        self.assertContains(response, '1 of 2')
+
+    def test_journals_pagination_page_2(self):
+        """Second page of journals should show remaining entries."""
+        for i in range(20):
+            JournalEntry.objects.create(user=self.user, content=f'Entry {i}', title=f'Title {i}')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/journals/', {'page': 2})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['journal_entries']), 5)
+
+    def test_journals_pagination_preserves_filters(self):
+        """Pagination links should preserve search filters."""
+        JournalEntry.objects.create(user=self.user, content='Beach day', title='Beach')
+        for i in range(15):
+            JournalEntry.objects.create(user=self.user, content=f'Entry {i}', title=f'Title {i}')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/journals/', {'q': 'Beach'})
+        self.assertEqual(response.status_code, 200)
+        # Should only have 1 result, no pagination needed
+        self.assertFalse(response.context['page_obj'].has_other_pages())
+
+    def test_goals_pagination(self):
+        """Goals view should paginate at 10 goals per page."""
+        for i in range(15):
+            Goal.objects.create(
+                user=self.user,
+                goal_title=f'Goal {i}',
+                goal_text='Test text',
+                goal_rationale='Test rationale',
+                created_at=timezone.now(),
+                length='1m'
+            )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/goals/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['goal_entries']), 10)
+        self.assertTrue(response.context['page_obj'].has_other_pages())
+
+    def test_goals_pagination_page_2(self):
+        """Second page of goals should show remaining entries."""
+        for i in range(15):
+            Goal.objects.create(
+                user=self.user,
+                goal_title=f'Goal {i}',
+                goal_text='Test text',
+                goal_rationale='Test rationale',
+                created_at=timezone.now(),
+                length='1m'
+            )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/goals/', {'page': 2})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['goal_entries']), 5)
+
+    def test_report_list_pagination(self):
+        """Report list view should paginate at 10 reports per page."""
+        for i in range(15):
+            Report.objects.create(
+                user=self.user,
+                title=f'Report {i}',
+                type='w',
+                content='Content'
+            )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/reports/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['reports']), 10)
+        self.assertTrue(response.context['page_obj'].has_other_pages())
+
+    def test_tag_list_pagination(self):
+        """Tag list view should paginate at 20 tags per page."""
+        from .models import Tag
+        for i in range(25):
+            Tag.objects.create(user=self.user, name=f'tag{i}')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/tags/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['tags']), 20)
+        self.assertTrue(response.context['page_obj'].has_other_pages())
+
+    def test_tag_detail_pagination(self):
+        """Tag detail view should paginate at 15 entries per page."""
+        from .models import Tag
+        tag = Tag.objects.create(user=self.user, name='work')
+        for i in range(20):
+            entry = JournalEntry.objects.create(user=self.user, content=f'Entry {i}', title=f'Title {i}')
+            entry.tags.add(tag)
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/tags/{tag.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['entries']), 15)
+        self.assertTrue(response.context['page_obj'].has_other_pages())
+
+    def test_pagination_no_entries_no_pagination(self):
+        """Views with few entries should not show pagination controls."""
+        JournalEntry.objects.create(user=self.user, content='Only entry', title='Only')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/journals/')
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['page_obj'].has_other_pages())
+
+    def test_pagination_invalid_page_number(self):
+        """Invalid page number should return last page gracefully."""
+        for i in range(20):
+            JournalEntry.objects.create(user=self.user, content=f'Entry {i}', title=f'Title {i}')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/journals/', {'page': 'abc'})
+        self.assertEqual(response.status_code, 200)
+
+    def test_pagination_out_of_range_page(self):
+        """Out of range page number should return last page."""
+        for i in range(20):
+            JournalEntry.objects.create(user=self.user, content=f'Entry {i}', title=f'Title {i}')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/journals/', {'page': 999})
+        self.assertEqual(response.status_code, 200)
+        # Should return last page
+        self.assertEqual(response.context['page_obj'].number, 2)
+
+
+# ============================================================
+# Tests for Polish: Navigation Bar
+# ============================================================
+
+class NavigationBarTest(TestCase):
+    """Tests for the navigation bar inclusion."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_nav_included_in_dashboard(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/')
+        self.assertContains(response, 'navbar')
+        self.assertContains(response, 'Journals')
+        self.assertContains(response, 'Goals')
+        self.assertContains(response, 'Mood Calendar')
+        self.assertContains(response, 'Tags')
+        self.assertContains(response, 'Streaks')
+        self.assertContains(response, 'Reports')
+        self.assertContains(response, 'Profile')
+        self.assertContains(response, 'Logout')
+
+    def test_nav_included_in_journals(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/journals/')
+        self.assertContains(response, 'navbar')
+
+    def test_nav_included_in_goals(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/goals/')
+        self.assertContains(response, 'navbar')
+
+    def test_nav_included_in_tags(self):
+        from .models import Tag
+        Tag.objects.create(user=self.user, name='work')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/tags/')
+        self.assertContains(response, 'navbar')
+
+    def test_nav_included_in_reports(self):
+        Report.objects.create(user=self.user, title='Test Report', type='w', content='Content')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/reports/')
+        self.assertContains(response, 'navbar')
+
+    def test_nav_included_in_streaks(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/streaks/')
+        self.assertContains(response, 'navbar')
+
+    def test_nav_included_in_profile(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/profile/')
+        self.assertContains(response, 'navbar')
+
+    def test_nav_included_in_mood_calendar(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/mood-calendar/')
+        self.assertContains(response, 'navbar')
+
+    def test_nav_included_in_journal_detail(self):
+        entry = JournalEntry.objects.create(user=self.user, content='Test', title='Test')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/details/{entry.id}/')
+        self.assertContains(response, 'navbar')
+
+    def test_nav_included_in_goal_detail(self):
+        goal = Goal.objects.create(
+            user=self.user,
+            goal_title='Test Goal',
+            goal_text='Test text',
+            goal_rationale='Test rationale',
+            created_at=timezone.now(),
+            length='1m'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/goals/{goal.id}/')
+        self.assertContains(response, 'navbar')
+
+    def test_nav_included_in_report_detail(self):
+        report = Report.objects.create(user=self.user, title='Test Report', type='w', content='Content')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/reports/{report.id}/')
+        self.assertContains(response, 'navbar')
+
+    def test_nav_included_in_tag_detail(self):
+        from .models import Tag
+        tag = Tag.objects.create(user=self.user, name='work')
+        entry = JournalEntry.objects.create(user=self.user, content='Test', title='Test')
+        entry.tags.add(tag)
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/tags/{tag.id}/')
+        self.assertContains(response, 'navbar')
+
+
+# ============================================================
+# Tests for Polish: No Debug Print Statements
+# ============================================================
+
+class NoDebugPrintTest(TestCase):
+    """Verify no debug print statements remain in views.py."""
+
+    def test_no_print_in_views(self):
+        """views.py should not contain any print() statements."""
+        import os
+        views_path = os.path.join(os.path.dirname(__file__), 'views.py')
+        with open(views_path, 'r') as f:
+            content = f.read()
+        # Check for print statements (not commented out)
+        import re
+        lines = content.split('\n')
+        for i, line in enumerate(lines, 1):
+            stripped = line.strip()
+            # Skip commented lines
+            if stripped.startswith('#'):
+                continue
+            # Check for print() calls
+            if re.match(r'^print\s*\(', stripped):
+                self.fail(f'Found print statement at line {i}: {stripped}')

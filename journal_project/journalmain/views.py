@@ -12,6 +12,7 @@ from django.utils import timezone
 import requests
 from collections import Counter
 import calendar
+from django.core.paginator import Paginator
 # Create your views here.
 
 
@@ -252,8 +253,14 @@ def journals(request):
     # Get all tags for filter dropdown
     all_tags = Tag.objects.filter(journal_entries__user=request.user).distinct()
 
+    # Pagination
+    paginator = Paginator(entries, 15)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
     return render(request, 'journalindex.html', {
-        'journal_entries': entries,
+        'page_obj': page_obj,
+        'journal_entries': page_obj,
         'use_ai': settings.USE_AI,
         'query': query,
         'mood_filter': mood_filter,
@@ -293,7 +300,6 @@ def journal_question(request):
             journal_preamble=f"Now, consider the following journal entries.\n"
             for journal in form.cleaned_data['journals']:
                 journal_preamble+=f"Journal Entry:\nDate: {journal.date}\nContent:\n```{journal.content}```"
-            print(prompt+question+journal_preamble)
             response = requests.post(settings.OLLAMA_API_URL, json={'model': settings.OLLAMA_MODEL, 'stream': False, 'options': {'num_ctx': 4096}, 'prompt': prompt + question + journal_preamble})
             return render(request, 'report_detail.html', {'report_entry' : Report(user=request.user, title='Temporary Question', type='w', content=response.json()['response'].split('</think>')[1].strip()) })
         # This isn't nice, but, I see no better option. TODO to add some more verbose error reporting.
@@ -407,6 +413,16 @@ def journal_toggle_bookmark(request, id):
 
 
 @login_required
+def report_list(request):
+    """List all reports for the current user."""
+    reports = Report.objects.filter(user=request.user).order_by('-id')
+    paginator = Paginator(reports, 10)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    return render(request, 'report_list.html', {'reports': page_obj, 'page_obj': page_obj})
+
+
+@login_required
 def report_detail(request, id):
     report_entry = get_object_or_404(Report, id=id, user=request.user)
     return render(request, 'report_detail.html', {'report_entry' : report_entry})
@@ -415,7 +431,10 @@ def report_detail(request, id):
 @login_required
 def goals(request):
     goal_entries = Goal.objects.filter(user=request.user).order_by('-created_at')
-    return render(request, 'goalindex.html', {'goal_entries': goal_entries})
+    paginator = Paginator(goal_entries, 10)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    return render(request, 'goalindex.html', {'goal_entries': page_obj, 'page_obj': page_obj})
 
 
 #    path('goals/create.html', views.goals_create, name='goals_create'),
@@ -425,12 +444,9 @@ def goal_create(request):
     if request.method == "POST":
         # create a form instance and populate it with data from the request:
         form = GoalForm(request.POST)
-        print(form.is_valid())
-        print(form.errors)
         # check whether it's valid:
         if form.is_valid():
             # process the data in form.cleaned_data as required
-            print(form.cleaned_data)
             new = Goal()
             new.user = request.user # This WILL error when not logged in, but, that's fine
             # {'goal_title': 'Test', 'goal_text': 'test', 'goal_rationale': 'test', 'length': '1m', 'parent_goal': None}
@@ -438,6 +454,7 @@ def goal_create(request):
             new.goal_text = form.cleaned_data['goal_text']
             new.goal_rationale = form.cleaned_data['goal_rationale']
             new.length = form.cleaned_data['length']
+            new.progress = form.cleaned_data.get('progress') or 0
             if form.cleaned_data['parent_goal']:
                 new.parent_goal = form.cleaned_data['parent_goal']
             # redirect to a new URL:
@@ -546,7 +563,10 @@ def tag_list(request):
     tags = Tag.objects.filter(user=request.user).annotate(
         entry_count=Count('journal_entries')
     ).order_by('name')
-    return render(request, 'tag_list.html', {'tags': tags})
+    paginator = Paginator(tags, 20)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    return render(request, 'tag_list.html', {'tags': page_obj, 'page_obj': page_obj})
 
 
 @login_required
@@ -554,4 +574,106 @@ def tag_detail(request, id):
     """Show all journal entries for a specific tag."""
     tag = get_object_or_404(Tag, id=id, user=request.user)
     entries = tag.journal_entries.filter(user=request.user).order_by('-date')
-    return render(request, 'tag_detail.html', {'tag': tag, 'entries': entries})
+    paginator = Paginator(entries, 15)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    return render(request, 'tag_detail.html', {'tag': tag, 'entries': page_obj, 'page_obj': page_obj})
+
+
+@login_required
+def export_journals(request):
+    """Export all journal entries as JSON or Markdown."""
+    format_type = request.GET.get('format', 'json')
+    entries = JournalEntry.objects.filter(user=request.user).order_by('date')
+
+    if format_type == 'markdown':
+        md_content = f"# Journal Export - {timezone.now().strftime('%Y-%m-%d')}\n\n"
+        md_content += f"Total entries: {entries.count()}\n\n---\n\n"
+        for entry in entries:
+            md_content += f"## {entry.title or f'Journal Entry - {entry.date}'}\n\n"
+            md_content += f"**Date:** {entry.date}\n\n"
+            if entry.mood:
+                md_content += f"**Mood:** {entry.mood}\n\n"
+            md_content += f"### Content\n\n{entry.content or ''}\n\n"
+            if entry.reflections:
+                md_content += f"### Reflections\n\n{entry.reflections}\n\n"
+            if entry.gratitude:
+                md_content += f"### Gratitude\n\n{entry.gratitude}\n\n"
+            tags = list(entry.tags.all())
+            if tags:
+                md_content += f"**Tags:** {', '.join(t.name for t in tags)}\n\n"
+            md_content += "---\n\n"
+
+        response = HttpResponse(md_content, content_type='text/markdown')
+        response['Content-Disposition'] = f'attachment; filename="journals-{timezone.now().strftime("%Y-%m-%d")}.md"'
+        return response
+    else:
+        data = []
+        for entry in entries:
+            entry_data = {
+                'title': entry.title,
+                'date': entry.date.isoformat(),
+                'content': entry.content,
+                'mood': entry.mood,
+                'reflections': entry.reflections,
+                'gratitude': entry.gratitude,
+                'created_at': entry.created_at.isoformat(),
+                'updated_at': entry.updated_at.isoformat(),
+                'bookmarked': entry.bookmarked,
+                'tags': [t.name for t in entry.tags.all()],
+            }
+            data.append(entry_data)
+
+        response = HttpResponse(json.dumps(data, indent=2), content_type='application/json')
+        response['Content-Disposition'] = f'attachment; filename="journals-{timezone.now().strftime("%Y-%m-%d")}.json"'
+        return response
+
+
+@login_required
+def streak_detail(request):
+    """Display detailed streak information."""
+    entries = JournalEntry.objects.filter(user=request.user)
+
+    dates = sorted(set(entries.values_list('date', flat=True)))
+
+    streaks = []
+    if dates:
+        current_start = dates[0]
+        current_end = dates[0]
+        for i in range(1, len(dates)):
+            if dates[i] - dates[i-1] == timedelta(days=1):
+                current_end = dates[i]
+            else:
+                streaks.append({
+                    'start': current_start,
+                    'end': current_end,
+                    'length': (current_end - current_start).days + 1,
+                })
+                current_start = dates[i]
+                current_end = dates[i]
+        streaks.append({
+            'start': current_start,
+            'end': current_end,
+            'length': (current_end - current_start).days + 1,
+        })
+
+    streaks.sort(key=lambda s: s['length'], reverse=True)
+
+    current_streak = calculate_current_streak(entries)
+    longest_streak = max((s['length'] for s in streaks), default=0)
+    total_days = len(dates)
+
+    return render(request, 'streak_detail.html', {
+        'streaks': streaks[:10],
+        'current_streak': current_streak,
+        'longest_streak': longest_streak,
+        'total_days': total_days,
+    })
+
+
+@login_required
+def profile(request):
+    """Display user profile information."""
+    return render(request, 'profile.html', {
+        'user': request.user,
+    })

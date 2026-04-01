@@ -60,6 +60,7 @@
 </script>
 
 <div class="journal-container">
+    {% include 'nav.html' %}
     <h2>Edit Journal Entry</h2>
     <form method="POST" action="{% url 'journal_edit' entry.id %}">
         {% csrf_token %}
