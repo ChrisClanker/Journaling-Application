@@ -47,6 +47,14 @@
         <h4>Content</h4>
         <p>{{ entry.content | linebreaks}}</p>
 
+        {% if entry.content %}
+        <div class="text-muted mb-3">
+            <small>
+                Words: {{ entry.word_count }} | Characters: {{ entry.char_count }} | Reading time: ~{{ entry.reading_time_minutes }} min
+            </small>
+        </div>
+        {% endif %}
+
         <h4>Mood</h4>
         {% for mooditem in moods %}
           {{ mooditem | safe}}
@@ -59,6 +67,15 @@
             <a href="{% url 'tag_detail' tag.id %}" class="badge bg-info text-decoration-none me-1">{{ tag.name }}</a>
             {% endfor %}
         </div>
+        {% endif %}
+
+        {% if entry.goals.all %}
+        <h4>Linked Goals</h4>
+        <ul>
+            {% for goal in entry.goals.all %}
+            <li><a href="{% url 'goal_detail' goal.id %}">{{ goal.goal_title }}</a></li>
+            {% endfor %}
+        </ul>
         {% endif %}
 
         <h4>Reflections</h4>

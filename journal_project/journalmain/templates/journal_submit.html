@@ -69,6 +69,18 @@
 <div class="journal-container">
     {% include 'nav.html' %}
     <h2>Journal Entry</h2>
+    
+    {% if templates %}
+    <div class="mb-3">
+        <label class="form-label">Start from a template:</label>
+        <div class="d-flex flex-wrap gap-2">
+            {% for t in templates %}
+            <a href="?template={{ t.id }}" class="btn btn-outline-secondary btn-sm">{{ t.name }}</a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    
     {% if blurbs %}
         <div class="blurbs-container border p-3" style="margin-top: 20px;">
             <h3>Recent Blurbs</h3>
@@ -118,6 +130,23 @@
             {{ form.tags }}
             <small class="form-text text-muted">{{ form.tags.help_text }}</small>
         </div>
+        {% if form.linked_goals %}
+        <div class="form-group">
+            <label>{{ form.linked_goals.label }}</label>
+            <div class="row">
+                {% for checkbox in form.linked_goals %}
+                <div class="col-md-4">
+                    <div class="form-check">
+                        {{ checkbox.tag }}
+                        <label class="form-check-label" for="{{ checkbox.id_for_label }}">
+                            {{ checkbox.choice_label }}
+                        </label>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
         <button type="submit" class="btn btn-primary submit-btn">Submit</button>
         <p></p>
         <a href="{% url 'journals' %}" class="btn btn-secondary submit-btn">Return to index</a>

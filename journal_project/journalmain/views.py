@@ -4,7 +4,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth import authenticate, login
 from django.conf import settings
 from django.db.models import Q, Count
-from .models import JournalEntry, Blurb, Report, Goal, Tag
+from .models import JournalEntry, Blurb, Report, Goal, Tag, JournalTemplate
 import json
 from .forms import JournalForm, AskJournalForm, GoalForm
 from datetime import datetime, timedelta
@@ -203,6 +203,11 @@ def dashboard(request):
         date__year__lt=today.year
     ).order_by('-date')[:2]
 
+    # Writing stats
+    total_words = sum(len(e.content.split()) for e in entries if e.content)
+    total_chars = sum(len(e.content) for e in entries if e.content)
+    avg_words = total_words // max(total_entries, 1)
+
     context = {
         'total_entries': total_entries,
         'current_streak': current_streak,
@@ -212,6 +217,9 @@ def dashboard(request):
         'bookmarked_entries': bookmarked,
         'on_this_day_entries': on_this_day_entries,
         'use_ai': settings.USE_AI,
+        'total_words': total_words,
+        'total_chars': total_chars,
+        'avg_words': avg_words,
     }
     return render(request, 'dashboard.html', context)
 
@@ -332,6 +340,8 @@ def journal_create(request):
     if request.method == "POST":
         # create a form instance and populate it with data from the request:
         form = JournalForm(request.POST, use_ai=settings.USE_AI)
+        if not settings.USE_AI:
+            form.fields['linked_goals'].queryset = Goal.objects.filter(user=request.user)
         # check whether it's valid:
         if form.is_valid():
             # process the data in form.cleaned_data as required
@@ -357,6 +367,25 @@ def journal_create(request):
                 for tag_name in tag_names:
                     tag, created = Tag.objects.get_or_create(user=request.user, name=tag_name.lower())
                     new.tags.add(tag)
+            # Handle goal linking
+            if settings.USE_AI:
+                # Auto-link goals based on content matching
+                goals = Goal.objects.filter(user=request.user)
+                for goal in goals:
+                    content_lower = (new.content or '').lower()
+                    goal_title_lower = goal.goal_title.lower()
+                    title_words = set(goal_title_lower.split())
+                    
+                    if goal_title_lower in content_lower:
+                        new.goals.add(goal)
+                    elif len(title_words & set(content_lower.split())) >= 2:
+                        # At least 2 title words appear in content
+                        new.goals.add(goal)
+            else:
+                # Manual linking from form
+                linked_goals = form.cleaned_data.get('linked_goals', [])
+                for goal in linked_goals:
+                    new.goals.add(goal)
             # Let's mark the blurbs as spent now
             # Note this has a known issue - if the blurb was sent after the user started journaling
             # but before it was submitted, it would be marked as spent. This is not a big deal.
@@ -367,9 +396,24 @@ def journal_create(request):
             return HttpResponseRedirect("/journals/")
         return render(request, 'journal_submit.html', {'form':form})
     else:
+        template_id = request.GET.get('template')
         form = JournalForm(use_ai=settings.USE_AI)
+        
+        if template_id:
+            template = get_object_or_404(JournalTemplate, id=template_id, is_active=True)
+            # Pre-fill form with template content
+            form.fields['content'].widget.attrs['placeholder'] = template.content_template
+        
+        if not settings.USE_AI:
+            form.fields['linked_goals'].queryset = Goal.objects.filter(user=request.user)
+        
         blurbs = list(Blurb.objects.filter(user=request.user, journalEntry=None))
-        return render(request, 'journal_submit.html', {'form':form, 'blurbs' : blurbs})
+        templates = JournalTemplate.objects.filter(is_active=True)
+        return render(request, 'journal_submit.html', {
+            'form': form,
+            'blurbs': blurbs,
+            'templates': templates,
+        })
 
 
 @login_required
@@ -377,6 +421,8 @@ def journal_edit(request, id):
     entry = get_object_or_404(JournalEntry, id=id, user=request.user)
     if request.method == "POST":
         form = JournalForm(request.POST, instance=entry, use_ai=settings.USE_AI)
+        if not settings.USE_AI:
+            form.fields['linked_goals'].queryset = Goal.objects.filter(user=request.user)
         if form.is_valid():
             form.save()
             if not settings.USE_AI:
@@ -395,12 +441,36 @@ def journal_edit(request, id):
                 for tag_name in tag_names:
                     tag, created = Tag.objects.get_or_create(user=request.user, name=tag_name.lower())
                     entry.tags.add(tag)
+            # Handle goal linking
+            if settings.USE_AI:
+                # Re-auto-link goals based on content matching
+                entry.goals.clear()
+                goals = Goal.objects.filter(user=request.user)
+                for goal in goals:
+                    content_lower = (entry.content or '').lower()
+                    goal_title_lower = goal.goal_title.lower()
+                    title_words = set(goal_title_lower.split())
+                    
+                    if goal_title_lower in content_lower:
+                        entry.goals.add(goal)
+                    elif len(title_words & set(content_lower.split())) >= 2:
+                        entry.goals.add(goal)
+            else:
+                # Manual linking from form
+                entry.goals.clear()
+                linked_goals = form.cleaned_data.get('linked_goals', [])
+                for goal in linked_goals:
+                    entry.goals.add(goal)
             return HttpResponseRedirect(f"/details/{id}/")
         return render(request, 'journal_edit.html', {'form': form, 'entry': entry})
     else:
         form = JournalForm(instance=entry, use_ai=settings.USE_AI)
         # Pre-fill tags field
         existing_tags = ', '.join(t.name for t in entry.tags.all())
+        # Pre-fill linked goals for non-AI mode
+        if not settings.USE_AI:
+            form.fields['linked_goals'].queryset = Goal.objects.filter(user=request.user)
+            form.initial['linked_goals'] = entry.goals.all()
         return render(request, 'journal_edit.html', {'form': form, 'entry': entry, 'existing_tags': existing_tags})
 
 
@@ -919,3 +989,10 @@ def mood_trends(request):
         'all_moods': all_moods,
         'mood_colors': mood_heatmap_colors,
     })
+
+
+@login_required
+def template_list(request):
+    """List available journal templates."""
+    templates = JournalTemplate.objects.filter(is_active=True)
+    return render(request, 'template_list.html', {'templates': templates})

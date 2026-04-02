@@ -19,7 +19,7 @@ class Goal(models.Model):
     goal_text = models.CharField(max_length=1024, blank=False, null=False)
     goal_rationale = models.CharField(max_length=1024, blank=False, null=False)
     created_at = models.DateTimeField(default=timezone.now)
-    journals = models.ManyToManyField('JournalEntry', blank=True)
+    journals = models.ManyToManyField('JournalEntry', blank=True, related_name='goals')
     LENGTH_CHOICES = [
         ('1m', '1 Month'),
         ('6m', '6 Months'),
@@ -94,5 +94,37 @@ class JournalEntry(models.Model):
             return f"{self.user.username}'s Journal Entry for {self.date}"
         else:
             return f"[{self.date}] - {self.title}"
+
+    def word_count(self):
+        """Return the word count of the journal content."""
+        if not self.content:
+            return 0
+        return len(self.content.split())
+
+    def char_count(self):
+        """Return the character count of the journal content."""
+        if not self.content:
+            return 0
+        return len(self.content)
+
+    def reading_time_minutes(self):
+        """Estimate reading time in minutes (200 words per minute)."""
+        words = self.word_count()
+        return max(1, round(words / 200))
+
     class Meta:
         verbose_name_plural = "Journal Entries"
+
+
+class JournalTemplate(models.Model):
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+    content_template = models.TextField(help_text='Use {reflections} and {gratitude} as placeholders')
+    is_active = models.BooleanField(default=True)
+    order = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ['order']
+
+    def __str__(self):
+        return self.name

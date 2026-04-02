@@ -78,6 +78,15 @@
             <p>No parent goal</p>
         {% endif %}
 
+        {% if goal.journals.all %}
+        <h4>Linked Journal Entries</h4>
+        <ul>
+            {% for journal in goal.journals.all %}
+            <li><a href="{% url 'journal_detail' journal.id %}">{{ journal.title|default:journal.date }}</a></li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+
         <hr>
         <p class="text-muted">Created at: {{ goal.created_at }}</p>
 

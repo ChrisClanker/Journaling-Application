@@ -4,7 +4,7 @@ from django.urls import reverse
 from django.utils import timezone
 from datetime import timedelta
 import json
-from .models import JournalEntry, Goal, Blurb, Report
+from .models import JournalEntry, Goal, Blurb, Report, JournalTemplate
 from .forms import JournalForm, AskJournalForm, GoalForm
 
 
@@ -2859,3 +2859,652 @@ class NavigationPhase2Test(TestCase):
         self.client.login(username='testuser', password='testpass123')
         response = self.client.get('/mood-trends/')
         self.assertContains(response, 'navbar')
+
+
+# ============================================================
+# Tests for Phase 2 Feature 4: AI-Powered Goal Linking
+# ============================================================
+
+class GoalLinkingModelTest(TestCase):
+    """Tests for the Goal-JournalEntry ManyToMany relationship."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_goal_has_journals_field(self):
+        goal = Goal.objects.create(
+            user=self.user,
+            goal_title='Test Goal',
+            goal_text='Test text',
+            goal_rationale='Test rationale',
+            created_at=timezone.now(),
+            length='1m'
+        )
+        entry = JournalEntry.objects.create(user=self.user, content='Test')
+        goal.journals.add(entry)
+        self.assertEqual(goal.journals.count(), 1)
+        self.assertIn(entry, goal.journals.all())
+
+    def test_journal_entry_has_goals_reverse_relation(self):
+        goal = Goal.objects.create(
+            user=self.user,
+            goal_title='Test Goal',
+            goal_text='Test text',
+            goal_rationale='Test rationale',
+            created_at=timezone.now(),
+            length='1m'
+        )
+        entry = JournalEntry.objects.create(user=self.user, content='Test')
+        entry.goals.add(goal)
+        self.assertEqual(entry.goals.count(), 1)
+        self.assertIn(goal, entry.goals.all())
+
+    def test_multiple_goals_per_journal(self):
+        goal1 = Goal.objects.create(
+            user=self.user, goal_title='Goal 1', goal_text='Text',
+            goal_rationale='Rationale', created_at=timezone.now(), length='1m'
+        )
+        goal2 = Goal.objects.create(
+            user=self.user, goal_title='Goal 2', goal_text='Text',
+            goal_rationale='Rationale', created_at=timezone.now(), length='1m'
+        )
+        entry = JournalEntry.objects.create(user=self.user, content='Test')
+        entry.goals.add(goal1, goal2)
+        self.assertEqual(entry.goals.count(), 2)
+
+
+class GoalLinkingFormTest(TestCase):
+    """Tests for the linked_goals field on JournalForm."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_form_has_linked_goals_when_ai_disabled(self):
+        form = JournalForm(use_ai=False)
+        self.assertIn('linked_goals', form.fields)
+
+    def test_form_no_linked_goals_when_ai_enabled(self):
+        form = JournalForm(use_ai=True)
+        self.assertNotIn('linked_goals', form.fields)
+
+    def test_linked_goals_field_is_model_multiple_choice(self):
+        from django import forms as django_forms
+        form = JournalForm(use_ai=False)
+        self.assertIsInstance(form.fields['linked_goals'], django_forms.ModelMultipleChoiceField)
+
+    def test_linked_goals_field_not_required(self):
+        form = JournalForm(use_ai=False)
+        self.assertFalse(form.fields['linked_goals'].required)
+
+    def test_linked_goals_default_queryset_is_empty(self):
+        form = JournalForm(use_ai=False)
+        self.assertEqual(form.fields['linked_goals'].queryset.count(), 0)
+
+    def test_linked_goals_can_be_set_on_queryset(self):
+        goal = Goal.objects.create(
+            user=self.user, goal_title='Test Goal', goal_text='Text',
+            goal_rationale='Rationale', created_at=timezone.now(), length='1m'
+        )
+        form = JournalForm(use_ai=False)
+        form.fields['linked_goals'].queryset = Goal.objects.filter(user=self.user)
+        self.assertEqual(form.fields['linked_goals'].queryset.count(), 1)
+
+    def test_form_valid_with_linked_goals(self):
+        goal = Goal.objects.create(
+            user=self.user, goal_title='Test Goal', goal_text='Text',
+            goal_rationale='Rationale', created_at=timezone.now(), length='1m'
+        )
+        data = {
+            'content': 'Test content',
+            'reflections': '',
+            'gratitude': '',
+            'linked_goals': [goal.id],
+        }
+        form = JournalForm(data=data, use_ai=False)
+        form.fields['linked_goals'].queryset = Goal.objects.filter(user=self.user)
+        self.assertTrue(form.is_valid())
+
+
+class GoalLinkingCreateViewTest(TestCase):
+    """Tests for goal linking in journal_create view."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.goal = Goal.objects.create(
+            user=self.user, goal_title='Learn Django', goal_text='Complete tutorials',
+            goal_rationale='Career growth', created_at=timezone.now(), length='1m'
+        )
+
+    def test_create_with_manual_goal_linking(self):
+        """When USE_AI=False, manual goal linking should work."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post('/journals/create.html', {
+            'content': 'I am working on learning Django today',
+            'reflections': '',
+            'gratitude': '',
+            'linked_goals': [self.goal.id],
+        })
+        self.assertEqual(response.status_code, 302)
+        entry = JournalEntry.objects.get(user=self.user)
+        self.assertEqual(entry.goals.count(), 1)
+        self.assertIn(self.goal, entry.goals.all())
+
+    def test_create_without_goal_linking(self):
+        """Journal can be created without linking goals."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post('/journals/create.html', {
+            'content': 'Just a regular day',
+            'reflections': '',
+            'gratitude': '',
+        })
+        self.assertEqual(response.status_code, 302)
+        entry = JournalEntry.objects.get(user=self.user)
+        self.assertEqual(entry.goals.count(), 0)
+
+    def test_create_shows_goals_in_form_context(self):
+        """GET request should include goals in form for manual linking."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/journals/create.html')
+        self.assertEqual(response.status_code, 200)
+        form = response.context['form']
+        self.assertIn('linked_goals', form.fields)
+        self.assertEqual(form.fields['linked_goals'].queryset.count(), 1)
+
+    def test_create_multiple_goal_linking(self):
+        """Multiple goals can be linked at once."""
+        goal2 = Goal.objects.create(
+            user=self.user, goal_title='Exercise', goal_text='Run daily',
+            goal_rationale='Health', created_at=timezone.now(), length='1m'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post('/journals/create.html', {
+            'content': 'Working on both goals today',
+            'reflections': '',
+            'gratitude': '',
+            'linked_goals': [self.goal.id, goal2.id],
+        })
+        self.assertEqual(response.status_code, 302)
+        entry = JournalEntry.objects.get(user=self.user)
+        self.assertEqual(entry.goals.count(), 2)
+
+
+class GoalLinkingEditViewTest(TestCase):
+    """Tests for goal linking in journal_edit view."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.goal = Goal.objects.create(
+            user=self.user, goal_title='Learn Django', goal_text='Complete tutorials',
+            goal_rationale='Career growth', created_at=timezone.now(), length='1m'
+        )
+        self.entry = JournalEntry.objects.create(
+            user=self.user, content='Test content', title='Test'
+        )
+
+    def test_edit_adds_goal_linking(self):
+        """Editing a journal should allow adding goal links."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post(f'/details/{self.entry.id}/edit/', {
+            'content': 'Updated content about learning Django',
+            'reflections': '',
+            'gratitude': '',
+            'linked_goals': [self.goal.id],
+        })
+        self.assertEqual(response.status_code, 302)
+        self.entry.refresh_from_db()
+        self.assertEqual(self.entry.goals.count(), 1)
+        self.assertIn(self.goal, self.entry.goals.all())
+
+    def test_edit_shows_existing_linked_goals(self):
+        """Edit form should pre-fill existing goal links."""
+        self.entry.goals.add(self.goal)
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/details/{self.entry.id}/edit/')
+        self.assertEqual(response.status_code, 200)
+        form = response.context['form']
+        self.assertIn('linked_goals', form.fields)
+        self.assertEqual(list(form.initial.get('linked_goals', [])), [self.goal])
+
+    def test_edit_removes_goal_linking(self):
+        """Editing without goal links should clear them."""
+        self.entry.goals.add(self.goal)
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post(f'/details/{self.entry.id}/edit/', {
+            'content': 'Updated content',
+            'reflections': '',
+            'gratitude': '',
+            'linked_goals': [],
+        })
+        self.assertEqual(response.status_code, 302)
+        self.entry.refresh_from_db()
+        self.assertEqual(self.entry.goals.count(), 0)
+
+
+class GoalLinkingDetailViewTest(TestCase):
+    """Tests for linked goals display in journal_detail."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.goal = Goal.objects.create(
+            user=self.user, goal_title='Learn Django', goal_text='Complete tutorials',
+            goal_rationale='Career growth', created_at=timezone.now(), length='1m'
+        )
+        self.entry = JournalEntry.objects.create(
+            user=self.user, content='Test content', title='Test Entry'
+        )
+
+    def test_detail_shows_linked_goals(self):
+        self.entry.goals.add(self.goal)
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/details/{self.entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Linked Goals')
+        self.assertContains(response, 'Learn Django')
+
+    def test_detail_shows_goal_link(self):
+        self.entry.goals.add(self.goal)
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/details/{self.entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'/goals/{self.goal.id}/')
+
+    def test_detail_no_goals_section_when_none_linked(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/details/{self.entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'Linked Goals')
+
+
+class GoalDetailViewLinkedJournalsTest(TestCase):
+    """Tests for linked journals display in goal_detail."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.goal = Goal.objects.create(
+            user=self.user, goal_title='Learn Django', goal_text='Complete tutorials',
+            goal_rationale='Career growth', created_at=timezone.now(), length='1m'
+        )
+        self.entry = JournalEntry.objects.create(
+            user=self.user, content='Test content', title='Django Learning'
+        )
+
+    def test_goal_detail_shows_linked_journals(self):
+        self.goal.journals.add(self.entry)
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/goals/{self.goal.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Linked Journal Entries')
+        self.assertContains(response, 'Django Learning')
+
+    def test_goal_detail_shows_journal_link(self):
+        self.goal.journals.add(self.entry)
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/goals/{self.goal.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'/details/{self.entry.id}/')
+
+    def test_goal_detail_no_journals_section_when_none_linked(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/goals/{self.goal.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'Linked Journal Entries')
+
+
+# ============================================================
+# Tests for Phase 2 Feature 5: Journal Entry Word Count & Stats
+# ============================================================
+
+class JournalEntryWordCountTest(TestCase):
+    """Tests for word_count, char_count, and reading_time_minutes methods."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_word_count_basic(self):
+        entry = JournalEntry.objects.create(user=self.user, content='Hello world')
+        self.assertEqual(entry.word_count(), 2)
+
+    def test_word_count_empty(self):
+        entry = JournalEntry.objects.create(user=self.user, content='')
+        self.assertEqual(entry.word_count(), 0)
+
+    def test_word_count_none(self):
+        entry = JournalEntry.objects.create(user=self.user, content=None)
+        self.assertEqual(entry.word_count(), 0)
+
+    def test_word_count_single_word(self):
+        entry = JournalEntry.objects.create(user=self.user, content='Hello')
+        self.assertEqual(entry.word_count(), 1)
+
+    def test_word_count_long_text(self):
+        content = ' '.join(['word'] * 500)
+        entry = JournalEntry.objects.create(user=self.user, content=content)
+        self.assertEqual(entry.word_count(), 500)
+
+    def test_char_count_basic(self):
+        entry = JournalEntry.objects.create(user=self.user, content='Hello')
+        self.assertEqual(entry.char_count(), 5)
+
+    def test_char_count_empty(self):
+        entry = JournalEntry.objects.create(user=self.user, content='')
+        self.assertEqual(entry.char_count(), 0)
+
+    def test_char_count_none(self):
+        entry = JournalEntry.objects.create(user=self.user, content=None)
+        self.assertEqual(entry.char_count(), 0)
+
+    def test_reading_time_short(self):
+        """Less than 200 words should return 1 minute."""
+        entry = JournalEntry.objects.create(user=self.user, content='Hello world')
+        self.assertEqual(entry.reading_time_minutes(), 1)
+
+    def test_reading_time_200_words(self):
+        """200 words should return 1 minute."""
+        content = ' '.join(['word'] * 200)
+        entry = JournalEntry.objects.create(user=self.user, content=content)
+        self.assertEqual(entry.reading_time_minutes(), 1)
+
+    def test_reading_time_400_words(self):
+        """400 words should return 2 minutes."""
+        content = ' '.join(['word'] * 400)
+        entry = JournalEntry.objects.create(user=self.user, content=content)
+        self.assertEqual(entry.reading_time_minutes(), 2)
+
+    def test_reading_time_empty(self):
+        """Empty content should return 1 minute (minimum)."""
+        entry = JournalEntry.objects.create(user=self.user, content='')
+        self.assertEqual(entry.reading_time_minutes(), 1)
+
+    def test_reading_time_none(self):
+        """None content should return 1 minute (minimum)."""
+        entry = JournalEntry.objects.create(user=self.user, content=None)
+        self.assertEqual(entry.reading_time_minutes(), 1)
+
+
+class DashboardWritingStatsTest(TestCase):
+    """Tests for writing stats on the dashboard."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_dashboard_shows_total_words(self):
+        JournalEntry.objects.create(user=self.user, content='Hello world test', title='Test')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Total Words')
+        self.assertContains(response, '3')
+
+    def test_dashboard_shows_total_characters(self):
+        JournalEntry.objects.create(user=self.user, content='Hello', title='Test')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Total Characters')
+        self.assertContains(response, '5')
+
+    def test_dashboard_shows_avg_words(self):
+        JournalEntry.objects.create(user=self.user, content='Hello world', title='Test 1')
+        JournalEntry.objects.create(user=self.user, content='Foo bar baz', title='Test 2')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Avg Words')
+        # avg = (2 + 3) // 2 = 2
+        self.assertContains(response, '2')
+
+    def test_dashboard_stats_with_no_entries(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Total Words')
+        self.assertContains(response, '0')
+
+    def test_dashboard_stats_only_counts_own_entries(self):
+        other_user = User.objects.create_user(username='other', password='testpass123')
+        JournalEntry.objects.create(user=other_user, content='Other user content with many words')
+        JournalEntry.objects.create(user=self.user, content='Hi')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '1')  # total_words should be 1
+
+
+class JournalDetailWordCountTest(TestCase):
+    """Tests for word count display in journal_detail view."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.entry = JournalEntry.objects.create(
+            user=self.user, content='Hello world this is a test', title='Test Entry'
+        )
+
+    def test_detail_shows_word_count(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/details/{self.entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Words:')
+
+    def test_detail_shows_char_count(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/details/{self.entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Characters:')
+
+    def test_detail_shows_reading_time(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/details/{self.entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Reading time:')
+
+
+class JournalIndexWordCountTest(TestCase):
+    """Tests for word count column in journal index."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_index_shows_word_count_column(self):
+        JournalEntry.objects.create(user=self.user, content='Hello world', title='Test')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/journals/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Words')
+
+    def test_index_shows_word_count_value(self):
+        JournalEntry.objects.create(user=self.user, content='Hello world', title='Test')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/journals/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '2')  # "Hello world" = 2 words
+
+
+# ============================================================
+# Tests for Phase 2 Feature 6: Journal Templates / Prompts
+# ============================================================
+
+class JournalTemplateModelTest(TestCase):
+    """Tests for the JournalTemplate model."""
+
+    def test_create_template(self):
+        template = JournalTemplate.objects.create(
+            name='Test Template',
+            description='A test template',
+            content_template='Test content',
+            order=1,
+        )
+        self.assertEqual(template.name, 'Test Template')
+        self.assertTrue(template.is_active)
+        self.assertEqual(template.order, 1)
+
+    def test_template_str(self):
+        template = JournalTemplate.objects.create(name='Daily Reflection')
+        self.assertEqual(str(template), 'Daily Reflection')
+
+    def test_template_default_order(self):
+        template = JournalTemplate.objects.create(
+            name='Test', description='Test', content_template='Test'
+        )
+        self.assertEqual(template.order, 0)
+
+    def test_template_default_is_active(self):
+        template = JournalTemplate.objects.create(
+            name='Test', description='Test', content_template='Test'
+        )
+        self.assertTrue(template.is_active)
+
+    def test_template_ordering(self):
+        # Clear existing templates from migration
+        JournalTemplate.objects.all().delete()
+        t3 = JournalTemplate.objects.create(name='Third', content_template='3', order=3)
+        t1 = JournalTemplate.objects.create(name='First', content_template='1', order=1)
+        t2 = JournalTemplate.objects.create(name='Second', content_template='2', order=2)
+        templates = list(JournalTemplate.objects.all())
+        self.assertEqual(templates[0].name, 'First')
+        self.assertEqual(templates[1].name, 'Second')
+        self.assertEqual(templates[2].name, 'Third')
+
+    def test_inactive_template_not_in_default_queryset(self):
+        JournalTemplate.objects.all().delete()
+        JournalTemplate.objects.create(name='Active', content_template='Active', is_active=True)
+        JournalTemplate.objects.create(name='Inactive', content_template='Inactive', is_active=False)
+        active = JournalTemplate.objects.filter(is_active=True)
+        self.assertEqual(active.count(), 1)
+        self.assertEqual(active.first().name, 'Active')
+
+
+class DefaultTemplatesMigrationTest(TestCase):
+    """Tests that default templates are created by migration."""
+
+    def test_default_templates_exist(self):
+        expected = ['Daily Reflection', 'Gratitude Journal', 'Weekly Review', 'Goal Check-in']
+        for name in expected:
+            self.assertTrue(
+                JournalTemplate.objects.filter(name=name, is_active=True).exists(),
+                f"Template '{name}' should exist"
+            )
+
+    def test_default_templates_have_content(self):
+        for template in JournalTemplate.objects.filter(is_active=True):
+            self.assertTrue(len(template.content_template) > 0)
+
+    def test_default_templates_are_ordered(self):
+        templates = list(JournalTemplate.objects.filter(is_active=True))
+        self.assertEqual(len(templates), 4)
+        for i in range(len(templates) - 1):
+            self.assertLessEqual(templates[i].order, templates[i + 1].order)
+
+
+class TemplateListViewTest(TestCase):
+    """Tests for the template_list view."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_template_list_requires_login(self):
+        response = self.client.get('/templates/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_template_list_loads(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/templates/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Journal Templates')
+
+    def test_template_list_shows_templates(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/templates/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Daily Reflection')
+        self.assertContains(response, 'Gratitude Journal')
+
+    def test_template_list_does_not_show_inactive(self):
+        JournalTemplate.objects.create(name='Hidden', content_template='Hidden', is_active=False)
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/templates/')
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'Hidden')
+
+    def test_template_list_has_use_template_buttons(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/templates/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Use Template')
+
+    def test_template_list_has_create_blank_link(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/templates/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Create Blank Entry')
+
+
+class JournalCreateWithTemplateTest(TestCase):
+    """Tests for using templates when creating journals."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.template = JournalTemplate.objects.create(
+            name='Test Template',
+            description='A test',
+            content_template='What happened?\n\n{reflections}\n\nGratitude:\n\n{gratitude}',
+            order=1,
+        )
+
+    def test_create_page_shows_templates(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/journals/create.html')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Start from a template')
+        self.assertContains(response, 'Test Template')
+
+    def test_create_with_template_sets_placeholder(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/journals/create.html?template={self.template.id}')
+        self.assertEqual(response.status_code, 200)
+        form = response.context['form']
+        self.assertIn('placeholder', form.fields['content'].widget.attrs)
+        self.assertEqual(
+            form.fields['content'].widget.attrs['placeholder'],
+            'What happened?\n\n{reflections}\n\nGratitude:\n\n{gratitude}'
+        )
+
+    def test_create_with_invalid_template_id(self):
+        """Invalid template ID should return 404."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/journals/create.html?template=99999')
+        self.assertEqual(response.status_code, 404)
+
+    def test_create_with_inactive_template_id(self):
+        """Inactive template ID should return 404."""
+        inactive = JournalTemplate.objects.create(
+            name='Inactive', content_template='Inactive', is_active=False
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/journals/create.html?template={inactive.id}')
+        self.assertEqual(response.status_code, 404)
+
+    def test_create_without_template_works(self):
+        """Normal create without template parameter should work."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/journals/create.html')
+        self.assertEqual(response.status_code, 200)
+        form = response.context['form']
+        # Should not have a placeholder set from template
+        self.assertNotIn('placeholder', form.fields['content'].widget.attrs)
+
+    def test_templates_passed_in_context(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/journals/create.html')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('templates', response.context)
+        # Should include the 4 default templates plus the test template = 5
+        self.assertEqual(response.context['templates'].count(), 5)

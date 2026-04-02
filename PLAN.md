@@ -10,113 +10,89 @@ A **private, self-hosted journaling application** that grows with the user. The 
 
 ---
 
-## Current State (Phase 0 — Foundation)
+## Current State
 
-The app has a solid foundation:
-- ✅ Journal CRUD (create, read, update, delete)
-- ✅ Goals journal with hierarchy and expiration
-- ✅ Blurbs (Signal integration for quick thoughts)
-- ✅ AI-powered features (title generation, mood extraction, journal Q&A, weekly summaries)
-- ✅ AI toggle (`USE_AI=False` by default — fully functional without AI)
-- ✅ Authentication and logout
-- ✅ Dark mode
-- ✅ 71 passing tests
-- ✅ One-command local setup (`start.sh`)
+### Phase 0 — Foundation ✅
+- Journal CRUD, Goals, Blurbs, AI features (toggleable), Authentication, Dark mode, 218 tests, `start.sh`
+
+### Phase 1 — Usability & Discoverability ✅
+- Dashboard, Search/Filter, Mood Calendar, Tags, Bookmarks, Export (JSON/MD), Streaks, Profile, Goal Progress, Weekly Report Command, Pagination, Navigation Bar
 
 ---
 
-## Phase 1 — Usability & Discoverability (Current Sprint)
+## Phase 2 — Intelligence & Reflection (Current Sprint)
 
-**Goal:** Make the app feel polished and help users get value from their existing data.
+**Goal:** Help users derive meaning from their journals over time. Move from "recording" to "understanding."
 
-### Feature 1: Dashboard Home Page
-**Problem:** The journal index is just a table. Users land on it and see a wall of text with no sense of their journaling habits.
-**Solution:** A dashboard with key stats (total entries, current streak, mood distribution), recent entries, and quick actions. Shows users their journey at a glance.
+### Feature 1: Monthly Report Generation
+**Problem:** Weekly reports exist but there's no monthly or longer-term perspective. Users can't see month-over-month patterns.
+**Solution:** Extend the `generate_weekly_report` command to also generate monthly reports. Add a monthly report type to the Report model. Display monthly reports alongside weekly ones.
 
-### Feature 2: Journal Search & Filtering
-**Problem:** As journals accumulate, finding a specific entry becomes impossible.
-**Solution:** Full-text search across journal content, title, reflections, and gratitude fields. Filter by date range, mood, and tags.
+### Feature 2: "On This Day" / Memory Feature
+**Problem:** Journals accumulate but past entries are forgotten. Users miss the joy of re-reading what they wrote on the same date in previous years.
+**Solution:** A dashboard widget and dedicated page showing journal entries from the same date in previous years. "On this day in 2024, you wrote..."
 
-### Feature 3: Mood Calendar Visualization
-**Problem:** Mood data exists but is buried in individual entries. Users can't see patterns.
-**Solution:** A calendar heatmap (like GitHub contributions) showing mood colors per day. Click a day to jump to that entry.
+### Feature 3: Mood Trend Chart
+**Problem:** The mood calendar shows individual days but no trend over time. Users can't see if their mood is improving or declining.
+**Solution:** A line chart (CSS/SVG-based, no JS libraries) showing mood frequency over weeks/months. Shows the top 3 moods per week as a stacked visualization.
 
-### Feature 4: Journal Tags/Topics System
-**Problem:** Journals have no categorization beyond mood. Users can't organize by theme.
-**Solution:** A Tag model with ManyToMany to JournalEntry. Users can create tags like "work", "family", "health" and filter by them.
+### Feature 4: AI-Powered Goal Linking
+**Problem:** The Goal model has a ManyToMany to JournalEntry but it's never populated. The README says AI should scan journals for goal references.
+**Solution:** When a journal is submitted (and USE_AI=True), scan content for goal title/keyword matches and auto-link. When USE_AI=False, provide a manual "Link to Goal" selector on the journal form.
 
-### Feature 5: Export Journals (JSON/Markdown)
-**Problem:** The "longevity" promise is empty if data is locked in the database.
-**Solution:** Export all journals as a downloadable JSON file or formatted Markdown document. One-click backup.
+### Feature 5: Journal Entry Word Count & Stats
+**Problem:** Users have no sense of their writing volume. No feedback on how much they're journaling.
+**Solution:** Calculate and display word count, character count, and estimated reading time on each journal entry. Show total words written on the dashboard. Add a "writing stats" section.
 
-### Feature 6: Streak Tracking
-**Problem:** No gamification or habit reinforcement. Users don't know their consistency.
-**Solution:** Calculate and display current streak, longest streak, and total journaling days on the dashboard.
+### Feature 6: Journal Templates / Prompts
+**Problem:** Users sometimes face blank-page syndrome. They don't know what to write about.
+**Solution:** A set of built-in journal templates (e.g., "Daily Reflection", "Gratitude Journal", "Weekly Review", "Goal Check-in"). Users can start a journal from a template which pre-fills section headers.
 
-### Feature 7: Password Change & Profile Management
-**Problem:** Users can't change their password or manage their profile from within the app.
-**Solution:** Profile page with password change form and username display.
+### Feature 7: Journal Entry Drafts / Autosave
+**Problem:** If a user starts writing and gets interrupted, their work is lost.
+**Solution:** A Draft model that saves journal content periodically via a simple JavaScript autosave. Drafts are user-private and can be resumed or discarded.
 
-### Feature 8: Goal Progress Tracking
-**Problem:** Goals have a deadline but no way to track progress toward them.
-**Solution:** Add a `progress` field (0-100%) to goals. Display a progress bar on goal detail. Allow manual progress updates.
+### Feature 8: Annual Review Generation
+**Problem:** At year-end, there's no way to reflect on the entire year.
+**Solution:** A management command (`generate_annual_review`) that compiles a year-in-review: total entries, word count, top moods, most-used tags, goal progress summary, longest streak, and (with AI) a narrative summary.
 
-### Feature 9: Bookmark/Favorite Journal Entries
-**Problem:** Users can't mark important entries for quick return.
-**Solution:** Add a `bookmarked` boolean field to JournalEntry. Show bookmarks on the dashboard and in a dedicated bookmarks page.
+### Feature 9: Journal Timeline View
+**Problem:** The table view is functional but doesn't convey the narrative flow of a user's life.
+**Solution:** A timeline visualization showing journal entries as a vertical timeline with dates, titles, mood badges, and truncated content. Clickable to expand. Filterable by tag and date range.
 
-### Feature 10: Weekly Report Generation Management Command
-**Problem:** Weekly summaries exist in the model but there's no way to generate them on demand or via cron.
-**Solution:** A Django management command (`generate_weekly_report`) that can be run manually or scheduled via cron. Works with or without AI.
-
----
-
-## Phase 2 — Intelligence & Insights (Future)
-
-### Feature 11: AI-Powered Goal Linking
-When a journal is submitted, AI scans it for references to active goals and auto-links them.
-
-### Feature 12: Daily Suggestions/Feedback
-After journaling, AI provides one actionable suggestion for the next day based on journal content.
-
-### Feature 13: Trend Analysis
-Track topics over time. Show which themes are growing, fading, or stable in the user's life.
-
-### Feature 14: Sentiment Over Time Graph
-Plot mood/sentiment scores on a timeline graph to visualize emotional patterns.
-
-### Feature 15: Annual Review
-At year-end, generate a comprehensive review: top moods, most common topics, goal progress, and key moments.
+### Feature 10: Tag Edit, Merge, and Delete
+**Problem:** Tags can accumulate duplicates or become messy. Users can't rename, merge, or delete tags.
+**Solution:** Tag management page with rename, merge (move all entries from one tag to another), and delete (with confirmation) operations.
 
 ---
 
-## Phase 3 — Polish & Scale (Long-Term)
+## Phase 3 — Polish & Scale (Future)
 
-### Feature 16: Multi-User Support
-Support multiple users on the same instance with proper data isolation (already partially done via ForeignKey).
-
-### Feature 17: Mobile-Responsive Templates
+### Feature 11: Mobile-Responsive Templates
 Ensure all pages work well on phones and tablets.
 
-### Feature 18: Data Import
+### Feature 12: Data Import
 Import journals from other platforms (Day One, standard JSON, plain text files).
 
-### Feature 19: Encryption at Rest
+### Feature 13: Encryption at Rest
 Optional database-level encryption for an extra layer of privacy.
 
-### Feature 20: PWA Support
+### Feature 14: PWA Support
 Make the app installable as a Progressive Web App for offline journaling.
+
+### Feature 15: Journal Entry Search Within Content
+Full-text search within a single journal entry to find specific passages.
 
 ---
 
-## Technical Debt to Address
+## Technical Debt
 
-- [ ] Remove debug `print()` statements from views.py
-- [ ] Extract magic strings (mood colors, goal length choices) into constants
-- [ ] Add pagination to journal and goal listing views
-- [ ] Add CSRF token validation testing
+- [ ] Extract magic strings (mood colors, goal length choices) into constants module
+- [ ] Optimize `all_moods` query in journals view (currently iterates all entries)
 - [ ] Add rate limiting for AI endpoints
 - [ ] Consider switching from `CharField` to `TextField` for long content fields
+- [ ] Add database indexes for frequently queried fields
+- [ ] Consolidate dark-mode cookie scripts into a single include
 
 ---
 

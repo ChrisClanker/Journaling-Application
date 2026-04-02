@@ -37,4 +37,5 @@ urlpatterns = [
     path('reports/monthly/<int:year>/<int:month>/', views.generate_monthly_report, name='generate_monthly_report'),
     path('on-this-day/', views.on_this_day, name='on_this_day'),
     path('mood-trends/', views.mood_trends, name='mood_trends'),
+    path('templates/', views.template_list, name='template_list'),
 ]

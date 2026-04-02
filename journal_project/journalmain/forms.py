@@ -1,4 +1,3 @@
-#from django.forms import ModelForm, TextField, ModelMultipleChoiceField, SelectMultiple
 from django import forms
 from django.contrib.auth.models import User
 from .models import JournalEntry, Goal
@@ -50,6 +49,14 @@ class JournalForm(forms.ModelForm):
         if self.use_ai:
             # Remove the mood field when AI is enabled (AI handles it)
             self.fields.pop('mood', None)
+        else:
+            # Add a field to manually link to goals
+            self.fields['linked_goals'] = forms.ModelMultipleChoiceField(
+                queryset=Goal.objects.none(),  # Will be set in view
+                widget=forms.CheckboxSelectMultiple,
+                required=False,
+                label='Link to Goals (optional)'
+            )
 
     class Meta:
         model = JournalEntry
