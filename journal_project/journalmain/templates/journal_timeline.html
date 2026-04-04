@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Journal Timeline - My Journal</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <style>
+        body {
+            font-family: 'Times New Roman', Times, serif;
+        }
+        .timeline {
+            position: relative;
+            padding: 20px 0;
+        }
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 50px;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: #dee2e6;
+        }
+        [data-bs-theme="dark"] .timeline::before {
+            background: #495057;
+        }
+        .timeline-item {
+            position: relative;
+            margin-bottom: 30px;
+            padding-left: 80px;
+        }
+        .timeline-date {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 70px;
+            text-align: right;
+            font-weight: bold;
+            font-size: 0.85rem;
+            color: #6c757d;
+        }
+        .timeline-dot {
+            position: absolute;
+            left: 43px;
+            top: 5px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #007bff;
+            border: 3px solid #fff;
+            z-index: 1;
+        }
+        [data-bs-theme="dark"] .timeline-dot {
+            border-color: #212529;
+        }
+        .timeline-content {
+            background: #fff;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+        }
+        [data-bs-theme="dark"] .timeline-content {
+            background: #2b3035;
+            border-color: #495057;
+        }
+        .timeline-content h5 {
+            margin-bottom: 5px;
+        }
+        .timeline-content .preview {
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+<script>
+    function getCookie(name) {
+        var nameEQ = name + "=";
+        var ca = document.cookie.split(';');
+        for(var i=0;i < ca.length;i++) {
+            var c = ca[i];
+            while (c.charAt(0)==' ') c = c.substring(1,c.length);
+            if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length,c.length);
+        }
+        return null;
+    }
+
+    document.addEventListener('DOMContentLoaded', (event) => {
+        const htmlElement = document.documentElement;
+        const isDarkMode = getCookie('dark') === 'True';
+        if (isDarkMode) {
+            htmlElement.setAttribute('data-bs-theme', 'dark');
+        }
+    });
+</script>
+
+<div class="container mt-5">
+    {% include 'nav.html' %}
+    <h1 class="mb-4">Journal Timeline</h1>
+    <a href="{% url 'dashboard' %}" class="btn btn-secondary mb-3">Back to Dashboard</a>
+    <button id="darkModeToggle" class="btn btn-secondary mb-3 ms-2"></button>
+
+    <!-- Search and Filter -->
+    <form method="get" class="row g-3 mb-4">
+        <div class="col-md-6">
+            <input type="text" name="q" class="form-control" placeholder="Search timeline..." value="{{ query }}">
+        </div>
+        <div class="col-md-4">
+            <select name="tag" class="form-select">
+                <option value="">All Tags</option>
+                {% for t in all_tags %}
+                <option value="{{ t.name }}" {% if tag_filter == t.name %}selected{% endif %}>{{ t.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <button type="submit" class="btn btn-primary w-100">Filter</button>
+        </div>
+    </form>
+
+    {% if entries %}
+        <div class="timeline">
+            {% for entry in entries %}
+            <div class="timeline-item">
+                <div class="timeline-date">
+                    {{ entry.date|date:"M d" }}<br>
+                    <small>{{ entry.date|date:"Y" }}</small>
+                </div>
+                <div class="timeline-dot"></div>
+                <div class="timeline-content">
+                    <h5>
+                        <a href="{% url 'journal_detail' entry.id %}">
+                            {{ entry.title|default:"Untitled Entry" }}
+                        </a>
+                    </h5>
+                    {% if entry.mood %}
+                    <div class="mb-2">
+                        {% for mood_badge in entry.mood|make_list %}
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    {% if entry.tags.all %}
+                    <div class="mb-2">
+                        {% for tag in entry.tags.all %}
+                        <a href="{% url 'journal_timeline' %}?tag={{ tag.name }}" class="badge bg-secondary text-decoration-none">{{ tag.name }}</a>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    <p class="preview">{{ entry.content|truncatewords:30 }}</p>
+                    <small class="text-muted">
+                        {{ entry.word_count }} words &middot; {{ entry.reading_time_minutes }} min read
+                    </small>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="text-muted">No journal entries found.</p>
+    {% endif %}
+
+    <!-- Pagination -->
+    {% if page_obj.has_other_pages %}
+    <nav>
+        <ul class="pagination justify-content-center">
+            {% if page_obj.has_previous %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.previous_page_number }}&q={{ query }}&tag={{ tag_filter }}">Previous</a>
+                </li>
+            {% endif %}
+            <li class="page-item active">
+                <span class="page-link">{{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+            </li>
+            {% if page_obj.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.next_page_number }}&q={{ query }}&tag={{ tag_filter }}">Next</a>
+                </li>
+            {% endif %}
+        </ul>
+    </nav>
+    {% endif %}
+</div>
+
+<script>
+    function setCookie(name, value, days) {
+        var expires = "";
+        if (days) {
+            var date = new Date();
+            date.setTime(date.getTime() + (days*24*60*60*1000));
+            expires = "; expires=" + date.toUTCString();
+        }
+        document.cookie = name + "=" + (value || "")  + expires + "; path=/";
+    }
+
+    document.addEventListener('DOMContentLoaded', (event) => {
+        const darkModeToggle = document.getElementById('darkModeToggle');
+        const isDarkMode = getCookie('dark') === 'True';
+        if (isDarkMode) {
+            darkModeToggle.innerText = '\u2600\uFE0F';
+            darkModeToggle.onclick = function() {
+                setCookie('dark', 'False', 365);
+                window.location.reload();
+            };
+        } else {
+            darkModeToggle.innerText = '\uD83C\uDF15';
+            darkModeToggle.onclick = function() {
+                setCookie('dark', 'True', 365);
+                window.location.reload();
+            };
+        }
+    });
+</script>
+
+</body>
+</html>

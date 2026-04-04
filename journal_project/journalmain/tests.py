@@ -3508,3 +3508,700 @@ class JournalCreateWithTemplateTest(TestCase):
         self.assertIn('templates', response.context)
         # Should include the 4 default templates plus the test template = 5
         self.assertEqual(response.context['templates'].count(), 5)
+
+
+# ============================================================
+# Tests for Phase 2 Feature 7: Journal Entry Drafts / Autosave
+# ============================================================
+
+class DraftAutosaveTest(TestCase):
+    """Tests for the draft autosave feature in journal_submit.html."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_journal_create_page_has_draft_status_element(self):
+        """The create journal page should have a draft-status div."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/journals/create.html')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'draft-status')
+
+    def test_journal_create_page_has_autosave_script(self):
+        """The create journal page should include the autosave JavaScript."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/journals/create.html')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'journal_draft')
+        self.assertContains(response, 'localStorage')
+
+    def test_journal_create_page_has_content_element(self):
+        """The create journal page should have a content textarea with id='content'."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/journals/create.html')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="content"')
+
+    def test_journal_create_page_has_reflections_element(self):
+        """The create journal page should have a reflections textarea with id='reflections'."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/journals/create.html')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="reflections"')
+
+    def test_journal_create_page_has_gratitude_element(self):
+        """The create journal page should have a gratitude textarea with id='gratitude'."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/journals/create.html')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="gratitude"')
+
+    def test_autosave_script_clears_on_submit(self):
+        """The autosave script should clear localStorage on form submit."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/journals/create.html')
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode('utf-8')
+        self.assertIn('removeItem(DRAFT_KEY)', content)
+        self.assertIn('removeItem(DRAFT_TIME_KEY)', content)
+
+
+# ============================================================
+# Tests for Phase 2 Feature 8: Annual Review Generation
+# ============================================================
+
+class GenerateAnnualReviewCommandTest(TestCase):
+    """Tests for the generate_annual_review management command."""
+
+    def setUp(self):
+        from datetime import date as date_type
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.today = timezone.now().date()
+        # Create entries for the current year
+        e1 = JournalEntry.objects.create(user=self.user, content='Entry 1')
+        e1.date = date_type(self.today.year, 1, 15)
+        e1.save()
+        e2 = JournalEntry.objects.create(user=self.user, content='Entry 2')
+        e2.date = date_type(self.today.year, 3, 20)
+        e2.save()
+        e3 = JournalEntry.objects.create(user=self.user, content='Entry 3')
+        e3.date = date_type(self.today.year, 6, 10)
+        e3.save()
+
+    def test_command_creates_annual_report(self):
+        """Command should create an annual review report."""
+        from django.core.management import call_command
+        from io import StringIO
+        out = StringIO()
+        call_command('generate_annual_review', stdout=out)
+        self.assertEqual(Report.objects.filter(user=self.user, type='y').count(), 1)
+        report = Report.objects.filter(user=self.user, type='y').first()
+        self.assertIn('Annual Review', report.title)
+
+    def test_command_skips_when_no_entries(self):
+        """Command should skip users with no entries for the target year."""
+        from django.core.management import call_command
+        from io import StringIO
+        other_user = User.objects.create_user(username='other', password='testpass123')
+        out = StringIO()
+        call_command('generate_annual_review', user='other', stdout=out)
+        self.assertEqual(Report.objects.filter(user=other_user).count(), 0)
+        self.assertIn('No journal entries', out.getvalue())
+
+    def test_command_skips_duplicate_report(self):
+        """Command should skip if annual report already exists."""
+        from django.core.management import call_command
+        from io import StringIO
+        out = StringIO()
+        call_command('generate_annual_review', user='testuser', stdout=out)
+        self.assertEqual(Report.objects.filter(user=self.user, type='y').count(), 1)
+        out2 = StringIO()
+        call_command('generate_annual_review', user='testuser', stdout=out2)
+        self.assertEqual(Report.objects.filter(user=self.user, type='y').count(), 1)
+        self.assertIn('already exists', out2.getvalue())
+
+    def test_command_with_user_flag(self):
+        """Command should only generate for specified user."""
+        from django.core.management import call_command
+        from io import StringIO
+        other_user = User.objects.create_user(username='other', password='testpass123')
+        JournalEntry.objects.create(user=other_user, content='Other entry')
+        out = StringIO()
+        call_command('generate_annual_review', user='testuser', stdout=out)
+        self.assertEqual(Report.objects.filter(user=self.user, type='y').count(), 1)
+        self.assertEqual(Report.objects.filter(user=other_user, type='y').count(), 0)
+
+    def test_command_with_nonexistent_user(self):
+        """Command should report error for nonexistent user."""
+        from django.core.management import call_command
+        from io import StringIO
+        err = StringIO()
+        call_command('generate_annual_review', user='nonexistent', stderr=err)
+        self.assertIn('not found', err.getvalue())
+
+    def test_command_with_year_flag(self):
+        """Command should generate for a specific year."""
+        from django.core.management import call_command
+        from io import StringIO
+        from datetime import date as date_type
+        entry = JournalEntry.objects.create(user=self.user, content='Old entry')
+        entry.date = date_type(2024, 5, 1)
+        entry.save()
+        out = StringIO()
+        call_command('generate_annual_review', user='testuser', year=2024, stdout=out)
+        report = Report.objects.filter(user=self.user, type='y', title='Annual Review: 2024').first()
+        self.assertIsNotNone(report)
+        self.assertIn('2024', report.title)
+
+    def test_report_content_has_entry_count(self):
+        """Generated report should include entry count."""
+        from django.core.management import call_command
+        call_command('generate_annual_review', user='testuser')
+        report = Report.objects.filter(user=self.user, type='y').first()
+        self.assertIn('Total entries: 3', report.content)
+
+    def test_report_content_has_monthly_breakdown(self):
+        """Generated report should include monthly breakdown."""
+        from django.core.management import call_command
+        call_command('generate_annual_review', user='testuser')
+        report = Report.objects.filter(user=self.user, type='y').first()
+        self.assertIn('Monthly Breakdown', report.content)
+
+    def test_report_content_has_mood_summary(self):
+        """Generated report should include mood summary when moods exist."""
+        from django.core.management import call_command
+        from datetime import date as date_type
+        JournalEntry.objects.create(
+            user=self.user, content='Happy entry',
+            date=date_type(self.today.year, 2, 1), mood='["happy"]'
+        )
+        call_command('generate_annual_review', user='testuser')
+        report = Report.objects.filter(user=self.user, type='y').first()
+        self.assertIn('Top Moods', report.content)
+        self.assertIn('happy', report.content)
+
+    def test_report_content_has_tag_summary(self):
+        """Generated report should include tag summary when tags exist."""
+        from django.core.management import call_command
+        from datetime import date as date_type
+        from .models import Tag
+        tag = Tag.objects.create(user=self.user, name='work')
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Work entry',
+            date=date_type(self.today.year, 4, 1)
+        )
+        entry.tags.add(tag)
+        call_command('generate_annual_review', user='testuser')
+        report = Report.objects.filter(user=self.user, type='y').first()
+        self.assertIn('Top Tags', report.content)
+        self.assertIn('work', report.content)
+
+    def test_report_content_has_streak_info(self):
+        """Generated report should include writing streaks."""
+        from django.core.management import call_command
+        call_command('generate_annual_review', user='testuser')
+        report = Report.objects.filter(user=self.user, type='y').first()
+        self.assertIn('Writing Streaks', report.content)
+        self.assertIn('Longest streak', report.content)
+
+
+class AnnualReviewListViewTest(TestCase):
+    """Tests for the annual_review_list view."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_annual_review_list_requires_login(self):
+        response = self.client.get('/reports/annual/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_annual_review_list_loads(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/reports/annual/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Annual Reviews')
+
+    def test_annual_review_list_empty(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/reports/annual/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No journal entries yet')
+
+    def test_annual_review_list_shows_years(self):
+        from datetime import date as date_type
+        e1 = JournalEntry.objects.create(user=self.user, content='Entry')
+        e1.date = date_type(2024, 3, 1)
+        e1.save()
+        e2 = JournalEntry.objects.create(user=self.user, content='Entry 2')
+        e2.date = date_type(2023, 5, 1)
+        e2.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/reports/annual/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '2024')
+        self.assertContains(response, '2023')
+
+    def test_annual_review_list_only_shows_own_years(self):
+        from datetime import date as date_type
+        other_user = User.objects.create_user(username='other', password='testpass123')
+        JournalEntry.objects.create(user=other_user, content='Other', date=date_type(2024, 1, 1))
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/reports/annual/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No journal entries yet')
+
+    def test_annual_review_list_shows_has_report_indicator(self):
+        from datetime import date as date_type
+        e1 = JournalEntry.objects.create(user=self.user, content='Entry')
+        e1.date = date_type(2024, 1, 1)
+        e1.save()
+        Report.objects.create(user=self.user, title='Annual Review: 2024', type='y', content='Content')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/reports/annual/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'View Report')
+
+
+class GenerateAnnualReviewViewTest(TestCase):
+    """Tests for the generate_annual_review view."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_generate_annual_review_requires_login(self):
+        response = self.client.post('/reports/annual/2024/generate/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_generate_annual_review_creates_report(self):
+        from datetime import date as date_type
+        entry = JournalEntry.objects.create(user=self.user, content='Entry')
+        entry.date = date_type(2024, 3, 1)
+        entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post('/reports/annual/2024/generate/')
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Report.objects.filter(user=self.user, type='y').count(), 1)
+
+    def test_generate_annual_review_get_redirects(self):
+        """GET request should redirect to annual review list."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/reports/annual/2024/generate/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_generate_annual_review_only_uses_own_entries(self):
+        from datetime import date as date_type
+        other_user = User.objects.create_user(username='other', password='testpass123')
+        entry = JournalEntry.objects.create(user=other_user, content='Other')
+        entry.date = date_type(2024, 1, 1)
+        entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post('/reports/annual/2024/generate/')
+        # Should show error since testuser has no entries for 2024
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Report.objects.filter(user=self.user, type='y').count(), 0)
+
+
+# ============================================================
+# Tests for Phase 2 Feature 9: Journal Timeline View
+# ============================================================
+
+class JournalTimelineViewTest(TestCase):
+    """Tests for the journal timeline view."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_timeline_requires_login(self):
+        response = self.client.get('/timeline/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_timeline_loads(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/timeline/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Journal Timeline')
+
+    def test_timeline_shows_entries(self):
+        JournalEntry.objects.create(user=self.user, content='Timeline entry', title='Timeline Entry')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/timeline/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Timeline Entry')
+
+    def test_timeline_only_shows_own_entries(self):
+        other_user = User.objects.create_user(username='other', password='testpass123')
+        JournalEntry.objects.create(user=other_user, content='Other', title='Other Entry')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/timeline/')
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'Other Entry')
+
+    def test_timeline_search(self):
+        JournalEntry.objects.create(user=self.user, content='Beach day', title='Beach Day')
+        JournalEntry.objects.create(user=self.user, content='Mountain hike', title='Mountain Day')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/timeline/', {'q': 'Beach'})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Beach Day')
+        self.assertNotContains(response, 'Mountain Day')
+
+    def test_timeline_filter_by_tag(self):
+        from .models import Tag
+        tag_work = Tag.objects.create(user=self.user, name='work')
+        tag_personal = Tag.objects.create(user=self.user, name='personal')
+        entry1 = JournalEntry.objects.create(user=self.user, content='Work stuff', title='Work Entry')
+        entry2 = JournalEntry.objects.create(user=self.user, content='Personal stuff', title='Personal Entry')
+        entry1.tags.add(tag_work)
+        entry2.tags.add(tag_personal)
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/timeline/', {'tag': 'work'})
+        self.assertContains(response, 'Work Entry')
+        self.assertNotContains(response, 'Personal Entry')
+
+    def test_timeline_shows_tag_filter_dropdown(self):
+        from .models import Tag
+        tag = Tag.objects.create(user=self.user, name='work')
+        entry = JournalEntry.objects.create(user=self.user, content='Work stuff', title='Work Entry')
+        entry.tags.add(tag)
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/timeline/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'work')
+
+    def test_timeline_pagination(self):
+        """Timeline should paginate at 20 entries per page."""
+        for i in range(25):
+            JournalEntry.objects.create(user=self.user, content=f'Entry {i}', title=f'Title {i}')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/timeline/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['entries']), 20)
+        self.assertTrue(response.context['page_obj'].has_other_pages())
+
+    def test_timeline_orders_by_date_desc(self):
+        """Entries should be ordered newest first."""
+        from datetime import date as date_type
+        today = timezone.now().date()
+        e1 = JournalEntry.objects.create(user=self.user, content='Older', title='Older Entry')
+        e1.date = today - timedelta(days=10)
+        e1.save()
+        e2 = JournalEntry.objects.create(user=self.user, content='Newer', title='Newer Entry')
+        e2.date = today - timedelta(days=1)
+        e2.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/timeline/')
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode('utf-8')
+        newer_pos = content.find('Newer Entry')
+        older_pos = content.find('Older Entry')
+        self.assertLess(newer_pos, older_pos)
+
+    def test_timeline_has_nav(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/timeline/')
+        self.assertContains(response, 'navbar')
+
+    def test_timeline_empty(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/timeline/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No journal entries found')
+
+
+# ============================================================
+# Tests for Phase 2 Feature 10: Tag Edit, Merge, and Delete
+# ============================================================
+
+class TagEditViewTest(TestCase):
+    """Tests for the tag edit (rename) view."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        from .models import Tag
+        self.tag = Tag.objects.create(user=self.user, name='work')
+
+    def test_tag_edit_requires_login(self):
+        response = self.client.get(f'/tags/{self.tag.id}/edit/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_tag_edit_get(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/tags/{self.tag.id}/edit/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Edit Tag')
+        self.assertContains(response, 'work')
+
+    def test_tag_edit_rename(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post(f'/tags/{self.tag.id}/edit/', {'name': 'job'})
+        self.assertEqual(response.status_code, 302)
+        self.tag.refresh_from_db()
+        self.assertEqual(self.tag.name, 'job')
+
+    def test_tag_edit_conflict(self):
+        from .models import Tag
+        Tag.objects.create(user=self.user, name='job')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post(f'/tags/{self.tag.id}/edit/', {'name': 'job'})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'already exists')
+        self.tag.refresh_from_db()
+        self.assertEqual(self.tag.name, 'work')
+
+    def test_tag_edit_same_name_redirects(self):
+        """Editing with the same name should still redirect."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post(f'/tags/{self.tag.id}/edit/', {'name': 'work'})
+        self.assertEqual(response.status_code, 302)
+
+    def test_tag_edit_not_found(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/tags/99999/edit/')
+        self.assertEqual(response.status_code, 404)
+
+    def test_cannot_edit_others_tag(self):
+        from .models import Tag
+        other_user = User.objects.create_user(username='other', password='testpass123')
+        other_tag = Tag.objects.create(user=other_user, name='secret')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/tags/{other_tag.id}/edit/')
+        self.assertEqual(response.status_code, 404)
+
+    def test_tag_edit_lowercases_name(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post(f'/tags/{self.tag.id}/edit/', {'name': 'WORK'})
+        self.assertEqual(response.status_code, 302)
+        self.tag.refresh_from_db()
+        self.assertEqual(self.tag.name, 'work')
+
+
+class TagDeleteViewTest(TestCase):
+    """Tests for the tag delete view."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        from .models import Tag
+        self.tag = Tag.objects.create(user=self.user, name='work')
+
+    def test_tag_delete_requires_login(self):
+        response = self.client.get(f'/tags/{self.tag.id}/delete/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_tag_delete_get(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/tags/{self.tag.id}/delete/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Delete Tag')
+        self.assertContains(response, 'work')
+
+    def test_tag_delete_post(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post(f'/tags/{self.tag.id}/delete/')
+        self.assertEqual(response.status_code, 302)
+        from .models import Tag
+        self.assertEqual(Tag.objects.filter(id=self.tag.id).count(), 0)
+
+    def test_tag_delete_does_not_delete_entries(self):
+        from .models import Tag
+        entry = JournalEntry.objects.create(user=self.user, content='Tagged entry')
+        entry.tags.add(self.tag)
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post(f'/tags/{self.tag.id}/delete/')
+        self.assertEqual(response.status_code, 302)
+        # Entry should still exist
+        self.assertEqual(JournalEntry.objects.filter(id=entry.id).count(), 1)
+
+    def test_tag_delete_not_found(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/tags/99999/delete/')
+        self.assertEqual(response.status_code, 404)
+
+    def test_cannot_delete_others_tag(self):
+        from .models import Tag
+        other_user = User.objects.create_user(username='other', password='testpass123')
+        other_tag = Tag.objects.create(user=other_user, name='secret')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/tags/{other_tag.id}/delete/')
+        self.assertEqual(response.status_code, 404)
+
+
+class TagMergeViewTest(TestCase):
+    """Tests for the tag merge view."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        from .models import Tag
+        self.tag1 = Tag.objects.create(user=self.user, name='work')
+        self.tag2 = Tag.objects.create(user=self.user, name='job')
+        self.entry = JournalEntry.objects.create(user=self.user, content='Entry with work tag')
+        self.entry.tags.add(self.tag1)
+
+    def test_tag_merge_requires_login(self):
+        response = self.client.get(f'/tags/{self.tag1.id}/merge/')
+        self.assertEqual(response.status_code, 302)
+
+    def test_tag_merge_get(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/tags/{self.tag1.id}/merge/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Merge Tag')
+        self.assertContains(response, 'job')
+
+    def test_tag_merge_post(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post(f'/tags/{self.tag1.id}/merge/', {'target_tag': self.tag2.id})
+        self.assertEqual(response.status_code, 302)
+        from .models import Tag
+        # Source tag should be deleted
+        self.assertEqual(Tag.objects.filter(id=self.tag1.id).count(), 0)
+        # Target tag should still exist
+        self.assertEqual(Tag.objects.filter(id=self.tag2.id).count(), 1)
+        # Entry should now have the target tag
+        self.entry.refresh_from_db()
+        self.assertEqual(self.entry.tags.count(), 1)
+        self.assertIn(self.tag2, self.entry.tags.all())
+
+    def test_tag_merge_not_found(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/tags/99999/merge/')
+        self.assertEqual(response.status_code, 404)
+
+    def test_cannot_merge_others_tag(self):
+        from .models import Tag
+        other_user = User.objects.create_user(username='other', password='testpass123')
+        other_tag = Tag.objects.create(user=other_user, name='secret')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/tags/{other_tag.id}/merge/')
+        self.assertEqual(response.status_code, 404)
+
+    def test_tag_merge_target_not_found(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post(f'/tags/{self.tag1.id}/merge/', {'target_tag': 99999})
+        self.assertEqual(response.status_code, 404)
+
+    def test_tag_merge_shows_other_tags(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/tags/{self.tag1.id}/merge/')
+        self.assertEqual(response.status_code, 200)
+        # Should show the other tag 'job' as a selectable option
+        self.assertContains(response, 'job')
+        # Should NOT show 'job' as the source tag name (only as target)
+        # The page title contains the source tag name, so we check the select options
+        content = response.content.decode('utf-8')
+        # The select should contain 'job' but not 'work'
+        select_start = content.find('<select')
+        select_end = content.find('</select>')
+        select_content = content[select_start:select_end]
+        self.assertIn('job', select_content)
+        self.assertNotIn('work', select_content)
+
+    def test_tag_merge_no_other_tags(self):
+        from .models import Tag
+        Tag.objects.filter(user=self.user).exclude(id=self.tag1.id).delete()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/tags/{self.tag1.id}/merge/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No other tags available')
+
+
+class TagListManagementButtonsTest(TestCase):
+    """Tests for management buttons on the tag list page."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        from .models import Tag
+        self.tag = Tag.objects.create(user=self.user, name='work')
+
+    def test_tag_list_has_edit_button(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/tags/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Edit')
+
+    def test_tag_list_has_merge_button(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/tags/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Merge')
+
+    def test_tag_list_has_delete_button(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/tags/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Delete')
+
+    def test_tag_list_edit_link(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/tags/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'/tags/{self.tag.id}/edit/')
+
+    def test_tag_list_merge_link(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/tags/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'/tags/{self.tag.id}/merge/')
+
+    def test_tag_list_delete_link(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/tags/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'/tags/{self.tag.id}/delete/')
+
+
+class NavigationPhase2Features7to10Test(TestCase):
+    """Tests for navigation links for features 7-10."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_nav_has_timeline_link(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/')
+        self.assertContains(response, 'Timeline')
+
+    def test_nav_has_annual_review_link(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/')
+        self.assertContains(response, 'Annual Review')
+
+    def test_timeline_page_has_nav(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/timeline/')
+        self.assertContains(response, 'navbar')
+
+    def test_annual_review_page_has_nav(self):
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/reports/annual/')
+        self.assertContains(response, 'navbar')
+
+    def test_tag_edit_page_has_nav(self):
+        from .models import Tag
+        tag = Tag.objects.create(user=self.user, name='work')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/tags/{tag.id}/edit/')
+        self.assertContains(response, 'navbar')
+
+    def test_tag_delete_page_has_nav(self):
+        from .models import Tag
+        tag = Tag.objects.create(user=self.user, name='work')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/tags/{tag.id}/delete/')
+        self.assertContains(response, 'navbar')
+
+    def test_tag_merge_page_has_nav(self):
+        from .models import Tag
+        tag = Tag.objects.create(user=self.user, name='work')
+        Tag.objects.create(user=self.user, name='job')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/tags/{tag.id}/merge/')
+        self.assertContains(response, 'navbar')

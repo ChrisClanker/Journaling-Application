@@ -147,11 +147,65 @@
             </div>
         </div>
         {% endif %}
+        <div id="draft-status" class="text-muted small mb-2"></div>
         <button type="submit" class="btn btn-primary submit-btn">Submit</button>
         <p></p>
         <a href="{% url 'journals' %}" class="btn btn-secondary submit-btn">Return to index</a>
     </form>
 </div>
+
+<script>
+(function() {
+    var DRAFT_KEY = 'journal_draft';
+    var DRAFT_TIME_KEY = 'journal_draft_time';
+    var DRAFT_STATUS_KEY = 'journal_draft_status';
+    var contentEl = document.getElementById('content');
+    var reflectionsEl = document.getElementById('reflections');
+    var gratitudeEl = document.getElementById('gratitude');
+    var statusEl = document.getElementById('draft-status');
+    if (!contentEl) return;
+    
+    // Restore draft on page load
+    var saved = localStorage.getItem(DRAFT_KEY);
+    var savedTime = localStorage.getItem(DRAFT_TIME_KEY);
+    if (saved && savedTime) {
+        var data = JSON.parse(saved);
+        var age = Date.now() - parseInt(savedTime);
+        if (age < 7 * 24 * 60 * 60 * 1000) {
+            if (data.content && !contentEl.value) contentEl.value = data.content;
+            if (data.reflections && reflectionsEl && !reflectionsEl.value) reflectionsEl.value = data.reflections;
+            if (data.gratitude && gratitudeEl && !gratitudeEl.value) gratitudeEl.value = data.gratitude;
+            if (statusEl) statusEl.textContent = 'Draft restored from ' + new Date(parseInt(savedTime)).toLocaleString();
+        } else {
+            localStorage.removeItem(DRAFT_KEY);
+            localStorage.removeItem(DRAFT_TIME_KEY);
+        }
+    }
+    
+    // Auto-save every 5 seconds
+    setInterval(function() {
+        if (contentEl.value) {
+            var draft = {
+                content: contentEl.value,
+                reflections: reflectionsEl ? reflectionsEl.value : '',
+                gratitude: gratitudeEl ? gratitudeEl.value : ''
+            };
+            localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+            localStorage.setItem(DRAFT_TIME_KEY, Date.now().toString());
+            if (statusEl) statusEl.textContent = 'Draft saved';
+        }
+    }, 5000);
+    
+    // Clear draft on successful form submit
+    var form = contentEl.closest('form');
+    if (form) {
+        form.addEventListener('submit', function() {
+            localStorage.removeItem(DRAFT_KEY);
+            localStorage.removeItem(DRAFT_TIME_KEY);
+        });
+    }
+})();
+</script>
 
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>

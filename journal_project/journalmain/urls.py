@@ -38,4 +38,10 @@ urlpatterns = [
     path('on-this-day/', views.on_this_day, name='on_this_day'),
     path('mood-trends/', views.mood_trends, name='mood_trends'),
     path('templates/', views.template_list, name='template_list'),
+    path('reports/annual/', views.annual_review_list, name='annual_review_list'),
+    path('reports/annual/<int:year>/generate/', views.generate_annual_review, name='generate_annual_review'),
+    path('timeline/', views.journal_timeline, name='journal_timeline'),
+    path('tags/<int:id>/edit/', views.tag_edit, name='tag_edit'),
+    path('tags/<int:id>/delete/', views.tag_delete, name='tag_delete'),
+    path('tags/<int:id>/merge/', views.tag_merge, name='tag_merge'),
 ]

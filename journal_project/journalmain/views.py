@@ -996,3 +996,228 @@ def template_list(request):
     """List available journal templates."""
     templates = JournalTemplate.objects.filter(is_active=True)
     return render(request, 'template_list.html', {'templates': templates})
+
+
+# ============================================================
+# Feature 8: Annual Review Generation
+# ============================================================
+
+@login_required
+def annual_review_list(request):
+    """List available years for annual review."""
+    entries = JournalEntry.objects.filter(user=request.user)
+    if not entries.exists():
+        return render(request, 'annual_review_list.html', {'years': []})
+
+    from django.db.models.functions import ExtractYear
+    years = entries.annotate(year=ExtractYear('date')).values_list('year', flat=True).distinct().order_by('-year')
+
+    existing = Report.objects.filter(user=request.user, type='y')
+    existing_years = set()
+    for r in existing:
+        parts = r.title.replace('Annual Review: ', '')
+        try:
+            existing_years.add(int(parts))
+        except ValueError:
+            pass
+
+    year_list = [{'year': y, 'has_report': y in existing_years} for y in years]
+    return render(request, 'annual_review_list.html', {'years': year_list})
+
+
+@login_required
+def generate_annual_review(request, year):
+    """Generate an annual review for a specific year."""
+    if request.method == 'POST':
+        from datetime import date as date_type
+        from collections import Counter as CCounter
+        import calendar as cal_module
+
+        title = f'Annual Review: {year}'
+        existing = Report.objects.filter(user=request.user, type='y', title=title)
+        if existing.exists():
+            return render(request, 'annual_review_list.html', {
+                'years': [],
+                'error': 'Report already exists for this year.'
+            })
+
+        entries = JournalEntry.objects.filter(
+            user=request.user,
+            date__year=year
+        ).order_by('date')
+
+        if not entries.exists():
+            return render(request, 'annual_review_list.html', {
+                'years': [],
+                'error': f'No journal entries found for {year}.'
+            })
+
+        # Generate summary
+        content = f"# Annual Review: {year}\n\n"
+        content += f"## Overview\n\n"
+        content += f"- Total entries: {entries.count()}\n"
+
+        total_words = sum(len(e.content.split()) for e in entries if e.content)
+        content += f"- Total words written: {total_words}\n"
+        content += f"- Average words per entry: {total_words // max(entries.count(), 1)}\n\n"
+
+        # Monthly breakdown
+        content += "## Monthly Breakdown\n\n"
+        monthly_counts = CCounter()
+        for entry in entries:
+            monthly_counts[entry.date.month] += 1
+        for month_num in range(1, 13):
+            count = monthly_counts.get(month_num, 0)
+            bar = '#' * count
+            content += f"- {cal_module.month_name[month_num]}: {count} entries {bar}\n"
+        content += "\n"
+
+        # Mood summary
+        all_moods = []
+        for entry in entries:
+            if entry.mood:
+                try:
+                    moods = json.loads(entry.mood.replace("'", '"'))
+                    all_moods.extend(moods)
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+
+        if all_moods:
+            content += "## Top Moods\n\n"
+            for mood, count in CCounter(all_moods).most_common(10):
+                content += f"- **{mood}**: {count} time(s)\n"
+            content += "\n"
+
+        # Tag summary
+        all_tags = CCounter()
+        for entry in entries:
+            for tag in entry.tags.all():
+                all_tags[tag.name] += 1
+        if all_tags:
+            content += "## Top Tags\n\n"
+            for tag, count in all_tags.most_common(10):
+                content += f"- **{tag}**: {count} entries\n"
+            content += "\n"
+
+        # Streak info
+        from datetime import timedelta
+        dates = sorted(set(entries.values_list('date', flat=True)))
+        longest = 1
+        current = 1
+        for i in range(1, len(dates)):
+            if dates[i] - dates[i-1] == timedelta(days=1):
+                current += 1
+                longest = max(longest, current)
+            else:
+                current = 1
+        content += f"## Writing Streaks\n\n"
+        content += f"- Longest streak: {longest} days\n\n"
+
+        # Goal progress
+        goals = Goal.objects.filter(
+            user=request.user,
+            created_at__year=year
+        )
+        if goals.exists():
+            content += "## Goals Set This Year\n\n"
+            for goal in goals:
+                content += f"- **{goal.goal_title}**: {goal.progress}% complete\n"
+            content += "\n"
+
+        report = Report.objects.create(
+            user=request.user,
+            title=title,
+            type='y',
+            content=content,
+        )
+
+        return HttpResponseRedirect(f'/reports/{report.id}/')
+
+    return HttpResponseRedirect('/reports/annual/')
+
+
+# ============================================================
+# Feature 9: Journal Timeline View
+# ============================================================
+
+@login_required
+def journal_timeline(request):
+    """Display journal entries as a vertical timeline."""
+    entries = JournalEntry.objects.filter(user=request.user).order_by('-date')
+
+    # Apply same filters as journals view
+    query = request.GET.get('q', '').strip()
+    if query:
+        from django.db.models import Q
+        entries = entries.filter(
+            Q(title__icontains=query) |
+            Q(content__icontains=query) |
+            Q(reflections__icontains=query) |
+            Q(gratitude__icontains=query)
+        )
+
+    tag_filter = request.GET.get('tag', '').strip()
+    if tag_filter:
+        entries = entries.filter(tags__name__iexact=tag_filter)
+
+    paginator = Paginator(entries, 20)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    all_tags = Tag.objects.filter(journal_entries__user=request.user).distinct()
+
+    return render(request, 'journal_timeline.html', {
+        'page_obj': page_obj,
+        'entries': page_obj,
+        'all_tags': all_tags,
+        'query': query,
+        'tag_filter': tag_filter,
+    })
+
+
+# ============================================================
+# Feature 10: Tag Edit, Merge, and Delete
+# ============================================================
+
+@login_required
+def tag_edit(request, id):
+    """Rename a tag."""
+    tag = get_object_or_404(Tag, id=id, user=request.user)
+    if request.method == 'POST':
+        new_name = request.POST.get('name', '').strip().lower()
+        if new_name and new_name != tag.name:
+            # Check for conflicts
+            existing = Tag.objects.filter(user=request.user, name=new_name)
+            if existing.exists():
+                return render(request, 'tag_edit.html', {'tag': tag, 'error': 'A tag with this name already exists.'})
+            tag.name = new_name
+            tag.save()
+        return HttpResponseRedirect('/tags/')
+    return render(request, 'tag_edit.html', {'tag': tag})
+
+
+@login_required
+def tag_delete(request, id):
+    """Delete a tag (does not delete journal entries)."""
+    tag = get_object_or_404(Tag, id=id, user=request.user)
+    if request.method == 'POST':
+        tag.delete()
+        return HttpResponseRedirect('/tags/')
+    return render(request, 'tag_confirm_delete.html', {'tag': tag})
+
+
+@login_required
+def tag_merge(request, id):
+    """Merge this tag into another tag."""
+    tag = get_object_or_404(Tag, id=id, user=request.user)
+    other_tags = Tag.objects.filter(user=request.user).exclude(id=id)
+    if request.method == 'POST':
+        target_id = request.POST.get('target_tag')
+        target = get_object_or_404(Tag, id=target_id, user=request.user)
+        # Move all journal entries from source to target
+        for entry in tag.journal_entries.all():
+            entry.tags.add(target)
+            entry.tags.remove(tag)
+        tag.delete()
+        return HttpResponseRedirect('/tags/')
+    return render(request, 'tag_merge.html', {'tag': tag, 'other_tags': other_tags})
