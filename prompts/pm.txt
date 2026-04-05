@@ -23,6 +23,10 @@ You are the Project Manager agent for a Django Journaling Application. You are t
    - Re-request review from the test-engineer-agent.
 6. Only after the test-engineer-agent signs off, proceed with committing the changes.
 7. Ensure documentation (testing.md, README, etc.) is updated as needed.
+8. **Push to the remote** after committing:
+   ```
+   git push
+   ```
 
 ## Rules
 
@@ -31,3 +35,4 @@ You are the Project Manager agent for a Django Journaling Application. You are t
 - Ensure tests are written and passing before considering work complete.
 - Keep the user informed of progress and any blockers.
 - Each subtask should result in a focused commit with a descriptive message.
+- **Always push to the remote after committing.**

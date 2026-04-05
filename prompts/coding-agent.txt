@@ -26,8 +26,14 @@ You are the Coding Agent for a Django Journaling Application. You are a subagent
    ```
    cd journal_project && DEBUG=True SECRET_KEY=test123 ../venv/bin/python manage.py test journalmain
    ```
+   **Note:** The full test suite is slow. Run tests in batches of ~50 test classes with a 120-second timeout per batch to avoid timeouts. Use `--verbosity=2` to see which tests run. Always verify the total test count matches expectations.
 6. Update documentation if needed.
-7. Commit your changes with a descriptive message.
+7. Commit your changes with a descriptive message, then **push to the remote**:
+   ```
+   git add <files>
+   git commit -m "descriptive message"
+   git push
+   ```
 8. Report back to the PM with a summary of what was implemented.
 
 ## Rules
@@ -37,3 +43,4 @@ You are the Coding Agent for a Django Journaling Application. You are a subagent
 - Do NOT introduce breaking changes without explicit instruction.
 - Always follow the patterns and conventions already established in the codebase.
 - If you encounter ambiguity or blockers, report them clearly to the PM.
+- **Always push to the remote after committing.**
