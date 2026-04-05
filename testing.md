@@ -17,7 +17,69 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Running Tests
+## Running Tests with Pytest (Recommended)
+
+Pytest is the recommended way to run tests. It provides better output, fixtures, and plugin support.
+
+### Basic Test Run
+
+Run all tests from the project root:
+
+```bash
+cd Journaling-Application
+pytest
+```
+
+Pytest will automatically discover all tests in `journalmain/tests.py` and run them with the correct Django settings and environment variables (configured in `pytest.ini` and `conftest.py`).
+
+### Verbose Output
+
+```bash
+pytest -v
+```
+
+### Run Specific Test Classes
+
+```bash
+# Run only model tests
+pytest -k JournalEntryModelTest
+
+# Run only view tests
+pytest -k LoginViewTest
+
+# Run only form tests
+pytest -k JournalFormTest
+```
+
+### Run Specific Tests
+
+```bash
+pytest -k test_create_journal_entry
+```
+
+### Run Tests Matching a Pattern
+
+```bash
+# Run all tests related to goals
+pytest -k Goal
+
+# Run all tests related to tags
+pytest -k Tag
+
+# Run all dashboard tests
+pytest -k Dashboard
+```
+
+### Run with Coverage
+
+```bash
+pip install pytest-cov
+pytest --cov=journalmain --cov-report=html
+```
+
+## Running Tests with Django Test Runner
+
+You can also use Django's built-in test runner if preferred.
 
 ### Basic Test Run
 

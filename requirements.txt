@@ -2,3 +2,6 @@ django
 requests
 django-markdownify
 psycopg2-binary
+pytest
+pytest-django
+pytest-env
