@@ -32,7 +32,36 @@ When reviewing code changes, check for:
 - Are there tests for all new functionality?
 - Do tests cover edge cases and error conditions?
 - Are tests meaningful and not just checking trivial cases?
-- Run: `cd journal_project && DEBUG=True SECRET_KEY=test123 ../venv/bin/python manage.py test journalmain --verbosity=2`
+
+**Running the test suite:** The full test suite takes a long time. Run tests in batches of 50 with a 120-second timeout per batch to avoid timeouts. Use the following approach:
+
+```bash
+cd journal_project && DEBUG=True SECRET_KEY=test123 ../venv/bin/python manage.py test journalmain --verbosity=2 --parallel 1
+```
+
+If the full suite is too slow, run in batches using test class names. First list all test classes:
+```bash
+cd journal_project && DEBUG=True SECRET_KEY=test123 ../venv/bin/python -c "
+import django, os
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'journal_project.settings')
+django.setup()
+from django.test.utils import get_runner
+from django.conf import settings
+TestRunner = get_runner(settings)
+runner = TestRunner(verbosity=0)
+suite = runner.test_loader.loadTestsFromName('journalmain')
+for group in suite:
+    for test in group:
+        print(test.__class__.__name__)
+" | sort -u
+```
+
+Then run batches of ~50 tests at a time:
+```bash
+cd journal_project && DEBUG=True SECRET_KEY=test123 ../venv/bin/python manage.py test journalmain.ClassName1 journalmain.ClassName2 ... --verbosity=2
+```
+
+Always verify the total test count matches expectations. If the full suite passes in one run, that's ideal, but batching is acceptable when time is a concern.
 
 ### Documentation
 - Is testing.md updated if new tests or test patterns were added?
@@ -43,7 +72,7 @@ When reviewing code changes, check for:
 
 1. Receive a review request from the PM with details of the coding-agent's changes.
 2. Review the diff and changed files.
-3. Run the test suite to verify all tests pass.
+3. Run the test suite to verify all tests pass. **Run tests in batches of ~50 with 120-second timeouts** if the full suite is too slow. Always verify the total test count matches expectations.
 4. Check test coverage for new code.
 5. Review documentation updates.
 6. Provide your review result:
