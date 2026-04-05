@@ -1141,6 +1141,138 @@ def generate_annual_review(request, year):
 # ============================================================
 
 @login_required
+def journal_heatmap(request):
+    """Display a GitHub-style contribution heatmap of journaling frequency."""
+    from datetime import date as date_type
+
+    today = timezone.now().date()
+    # Start from the most recent Sunday, go back 52 weeks + current partial week (371 days = 53 weeks)
+    # This ensures the current week (including today) is always visible in the grid
+    days_since_sunday = (today.weekday() + 1) % 7  # weekday(): Mon=0..Sun=6; we want Sun=0
+    start_date = today - timedelta(days=days_since_sunday + 364)
+    end_date = today
+
+    # Query entries in the date range
+    entries = JournalEntry.objects.filter(
+        user=request.user,
+        date__gte=start_date,
+        date__lte=end_date
+    )
+
+    # Build a count map: date_str -> count
+    date_counts = {}
+    for entry in entries:
+        date_str = entry.date.isoformat()
+        date_counts[date_str] = date_counts.get(date_str, 0) + 1
+
+    # Build the 53x7 grid (52 full weeks + current partial week)
+    grid = []
+    day_names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    num_weeks = 53
+
+    for week_idx in range(num_weeks):
+        week = []
+        for day_idx in range(7):
+            current_date = start_date + timedelta(days=week_idx * 7 + day_idx)
+            # Skip dates beyond today (partial last week)
+            if current_date > today:
+                week.append(None)
+                continue
+            date_str = current_date.isoformat()
+            count = date_counts.get(date_str, 0)
+
+            # Determine color level
+            if count == 0:
+                level = 0
+            elif count == 1:
+                level = 1
+            elif count == 2:
+                level = 2
+            elif count == 3:
+                level = 3
+            else:
+                level = 4
+
+            week.append({
+                'date': date_str,
+                'count': count,
+                'level': level,
+                'day_name': day_names[day_idx],
+            })
+        grid.append(week)
+
+    # Calculate stats
+    total_entries = entries.count()
+
+    # Most active day of week
+    day_of_week_counts = Counter()
+    for entry in entries:
+        # Python weekday: Mon=0, Tue=1, ..., Sun=6
+        day_name = calendar.day_name[entry.date.weekday()]
+        day_of_week_counts[day_name] += 1
+
+    if day_of_week_counts:
+        most_active_day = day_of_week_counts.most_common(1)[0][0]
+    else:
+        most_active_day = None
+
+    # Most active month
+    month_counts = Counter()
+    for entry in entries:
+        month_name = calendar.month_name[entry.date.month]
+        month_counts[month_name] += 1
+
+    if month_counts:
+        most_active_month = month_counts.most_common(1)[0][0]
+    else:
+        most_active_month = None
+
+    # Average entries per week
+    if total_entries > 0:
+        avg_per_week = round(total_entries / 53, 1)
+    else:
+        avg_per_week = 0.0
+
+    # Longest gap between consecutive journaling days
+    journaling_dates = sorted(set(entries.values_list('date', flat=True)))
+    if len(journaling_dates) >= 2:
+        longest_gap = 0
+        for i in range(1, len(journaling_dates)):
+            gap = (journaling_dates[i] - journaling_dates[i - 1]).days
+            if gap > longest_gap:
+                longest_gap = gap
+    elif len(journaling_dates) == 1:
+        longest_gap = 0
+    else:
+        longest_gap = None
+
+    # Month labels for the top of the grid
+    month_labels = []
+    current_month = None
+    for week_idx in range(num_weeks):
+        # Get the first day of this week
+        week_start = start_date + timedelta(days=week_idx * 7)
+        if week_start > today:
+            break
+        month = week_start.strftime('%b')
+        if month != current_month:
+            month_labels.append({'week': week_idx, 'month': month})
+            current_month = month
+
+    context = {
+        'grid': grid,
+        'total_entries': total_entries,
+        'most_active_day': most_active_day,
+        'most_active_month': most_active_month,
+        'avg_per_week': avg_per_week,
+        'longest_gap': longest_gap,
+        'month_labels': month_labels,
+        'day_names': day_names,
+    }
+    return render(request, 'journal_heatmap.html', context)
+
+
+@login_required
 def journal_timeline(request):
     """Display journal entries as a vertical timeline."""
     entries = JournalEntry.objects.filter(user=request.user).order_by('-date')

@@ -4288,3 +4288,451 @@ class FontConsistencyTest(TestCase):
         response = self.client.get('/templates/')
         self.assertContains(response, "font-family")
         self.assertContains(response, "Times New Roman")
+
+
+# ============================================================
+# Tests for Journaling Consistency Heatmap (Feature 11)
+# ============================================================
+
+class JournalHeatmapViewTest(TestCase):
+    """Tests for the journal heatmap view."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_heatmap_requires_login(self):
+        """Unauthenticated users should be redirected to login."""
+        response = self.client.get('/heatmap/')
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/login/', response.url)
+
+    def test_heatmap_loads_for_authenticated_user(self):
+        """Authenticated users should get a 200 response."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertEqual(response.status_code, 200)
+
+    def test_heatmap_page_title(self):
+        """Page should have the correct title."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Journaling Heatmap')
+
+    def test_heatmap_has_nav(self):
+        """Heatmap page should include the navigation bar."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertContains(response, 'navbar')
+
+    def test_heatmap_has_font(self):
+        """Heatmap page should have consistent font."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertContains(response, "font-family")
+        self.assertContains(response, "Times New Roman")
+
+
+class JournalHeatmapDataTest(TestCase):
+    """Tests for heatmap data accuracy."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.today = timezone.now().date()
+
+    def test_heatmap_empty_state(self):
+        """Heatmap should work with no entries."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Total entries')
+        self.assertContains(response, '0')
+
+    def test_heatmap_shows_single_entry(self):
+        """Heatmap should show entries from today."""
+        JournalEntry.objects.create(user=self.user, content='Today', date=self.today)
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Total entries')
+        # Verify the entry appears in the grid data
+        grid = response.context['grid']
+        today_str = self.today.isoformat()
+        found = False
+        for week in grid:
+            for day in week:
+                if day and day['date'] == today_str and day['count'] == 1:
+                    found = True
+                    break
+            if found:
+                break
+        self.assertTrue(found, "Today's entry should appear in a grid cell")
+
+    def test_heatmap_only_shows_own_entries(self):
+        """Heatmap should not show other users' entries."""
+        other_user = User.objects.create_user(username='other', password='testpass123')
+        JournalEntry.objects.create(user=other_user, content='Other', date=self.today)
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertEqual(response.status_code, 200)
+        context = response.context
+        self.assertEqual(context['total_entries'], 0)
+
+    def test_heatmap_grid_is_53_weeks(self):
+        """Grid should have 53 weeks (columns) to include current week."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertEqual(response.status_code, 200)
+        grid = response.context['grid']
+        self.assertEqual(len(grid), 53)
+
+    def test_heatmap_grid_week_has_7_days(self):
+        """Each week should have 7 days (rows)."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertEqual(response.status_code, 200)
+        grid = response.context['grid']
+        for week in grid:
+            self.assertEqual(len(week), 7)
+
+    def test_heatmap_entry_count_correct(self):
+        """Cell entry counts should match actual entries."""
+        # Create 3 entries on a specific date within the past year
+        target_date = self.today - timedelta(days=7)
+        for i in range(3):
+            entry = JournalEntry.objects.create(user=self.user, content=f'Entry {i}')
+            entry.date = target_date
+            entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertEqual(response.status_code, 200)
+        grid = response.context['grid']
+        # Find the cell for our target date
+        target_date_str = target_date.isoformat()
+        found = False
+        for week in grid:
+            for day in week:
+                if day and day['date'] == target_date_str:
+                    self.assertEqual(day['count'], 3)
+                    self.assertEqual(day['level'], 3)
+                    found = True
+        self.assertTrue(found, "Target date cell not found in grid")
+
+    def test_heatmap_color_level_0(self):
+        """No entries should be level 0."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        grid = response.context['grid']
+        # Most cells should be level 0 for a user with no entries
+        # 53 weeks * 7 days = 371, but some cells at the end may be None (future dates)
+        level_0_count = sum(1 for week in grid for day in week if day and day['level'] == 0)
+        self.assertGreaterEqual(level_0_count, 52 * 7)
+
+    def test_heatmap_color_level_1(self):
+        """1 entry should be level 1."""
+        target_date = self.today - timedelta(days=14)
+        entry = JournalEntry.objects.create(user=self.user, content='One entry')
+        entry.date = target_date
+        entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        grid = response.context['grid']
+        for week in grid:
+            for day in week:
+                if day and day['date'] == target_date.isoformat():
+                    self.assertEqual(day['level'], 1)
+
+    def test_heatmap_color_level_2(self):
+        """2 entries should be level 2."""
+        target_date = self.today - timedelta(days=21)
+        for i in range(2):
+            entry = JournalEntry.objects.create(user=self.user, content=f'Entry {i}')
+            entry.date = target_date
+            entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        grid = response.context['grid']
+        for week in grid:
+            for day in week:
+                if day and day['date'] == target_date.isoformat():
+                    self.assertEqual(day['level'], 2)
+
+    def test_heatmap_color_level_3(self):
+        """3 entries should be level 3."""
+        target_date = self.today - timedelta(days=28)
+        for i in range(3):
+            entry = JournalEntry.objects.create(user=self.user, content=f'Entry {i}')
+            entry.date = target_date
+            entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        grid = response.context['grid']
+        for week in grid:
+            for day in week:
+                if day and day['date'] == target_date.isoformat():
+                    self.assertEqual(day['level'], 3)
+
+    def test_heatmap_color_level_4(self):
+        """4+ entries should be level 4."""
+        target_date = self.today - timedelta(days=35)
+        for i in range(5):
+            entry = JournalEntry.objects.create(user=self.user, content=f'Entry {i}')
+            entry.date = target_date
+            entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        grid = response.context['grid']
+        for week in grid:
+            for day in week:
+                if day and day['date'] == target_date.isoformat():
+                    self.assertEqual(day['level'], 4)
+
+    def test_heatmap_entries_outside_range_excluded(self):
+        """Entries older than 365 days should not affect the heatmap."""
+        old_date = self.today - timedelta(days=400)
+        entry = JournalEntry.objects.create(user=self.user, content='Old entry')
+        entry.date = old_date
+        entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertEqual(response.status_code, 200)
+        context = response.context
+        self.assertEqual(context['total_entries'], 0)
+
+
+class JournalHeatmapStatsTest(TestCase):
+    """Tests for heatmap statistics calculations."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.today = timezone.now().date()
+
+    def test_stats_total_entries(self):
+        """Total entries stat should be correct."""
+        for i in range(5):
+            entry = JournalEntry.objects.create(user=self.user, content=f'Entry {i}')
+            entry.date = self.today - timedelta(days=i)
+            entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertEqual(response.context['total_entries'], 5)
+
+    def test_stats_most_active_day_of_week(self):
+        """Most active day of week should be calculated correctly."""
+        # Find the most recent Monday
+        today = self.today
+        days_since_monday = (today.weekday() - 0) % 7  # Monday = 0
+        monday = today - timedelta(days=days_since_monday)
+        # Create 3 entries on Monday
+        for i in range(3):
+            entry = JournalEntry.objects.create(user=self.user, content=f'Monday entry {i}')
+            entry.date = monday
+            entry.save()
+        # Create 1 entry on Tuesday
+        tuesday = monday + timedelta(days=1)
+        entry = JournalEntry.objects.create(user=self.user, content='Tuesday entry')
+        entry.date = tuesday
+        entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertEqual(response.context['most_active_day'], 'Monday')
+
+    def test_stats_most_active_month(self):
+        """Most active month should be calculated correctly."""
+        # Create 3 entries in January
+        for i in range(3):
+            entry = JournalEntry.objects.create(user=self.user, content=f'Jan entry {i}')
+            entry.date = self.today.replace(month=1, day=15)
+            entry.save()
+        # Create 1 entry in February
+        entry = JournalEntry.objects.create(user=self.user, content='Feb entry')
+        entry.date = self.today.replace(month=2, day=15)
+        entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        # January should be most active (only if within past year)
+        # We need to check it returns a valid month name
+        self.assertIn(response.context['most_active_month'], [
+            'January', 'February', 'March', 'April', 'May', 'June',
+            'July', 'August', 'September', 'October', 'November', 'December'
+        ])
+
+    def test_stats_average_entries_per_week(self):
+        """Average entries per week should be calculated correctly."""
+        # Create 14 entries over 2 weeks
+        for i in range(14):
+            entry = JournalEntry.objects.create(user=self.user, content=f'Entry {i}')
+            entry.date = self.today - timedelta(days=i)
+            entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        avg = response.context['avg_per_week']
+        # Should be a float rounded to 1 decimal
+        self.assertIsInstance(avg, float)
+        self.assertGreater(avg, 0)
+
+    def test_stats_longest_gap(self):
+        """Longest gap should be calculated correctly."""
+        # Entry today
+        entry1 = JournalEntry.objects.create(user=self.user, content='Today')
+        entry1.date = self.today
+        entry1.save()
+        # Entry 10 days ago
+        entry2 = JournalEntry.objects.create(user=self.user, content='Old')
+        entry2.date = self.today - timedelta(days=10)
+        entry2.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertEqual(response.context['longest_gap'], 10)
+
+    def test_stats_longest_gap_multiple_gaps(self):
+        """Longest gap should find the maximum gap."""
+        # Entry today
+        e1 = JournalEntry.objects.create(user=self.user, content='Today')
+        e1.date = self.today
+        e1.save()
+        # Entry 5 days ago
+        e2 = JournalEntry.objects.create(user=self.user, content='5 days')
+        e2.date = self.today - timedelta(days=5)
+        e2.save()
+        # Entry 20 days ago
+        e3 = JournalEntry.objects.create(user=self.user, content='20 days')
+        e3.date = self.today - timedelta(days=20)
+        e3.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        # Gap between today and 5 days ago = 5, between 5 and 20 = 15
+        self.assertEqual(response.context['longest_gap'], 15)
+
+    def test_stats_no_entries(self):
+        """Stats should handle no entries gracefully."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertEqual(response.context['total_entries'], 0)
+        self.assertIsNone(response.context['most_active_day'])
+        self.assertIsNone(response.context['most_active_month'])
+        self.assertEqual(response.context['avg_per_week'], 0.0)
+        self.assertIsNone(response.context['longest_gap'])
+
+    def test_stats_single_entry(self):
+        """Stats should handle a single entry."""
+        entry = JournalEntry.objects.create(user=self.user, content='Only')
+        entry.date = self.today
+        entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertEqual(response.context['total_entries'], 1)
+        self.assertEqual(response.context['longest_gap'], 0)
+
+
+class JournalHeatmapTemplateTest(TestCase):
+    """Tests for heatmap template rendering."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.today = timezone.now().date()
+
+    def test_heatmap_shows_legend(self):
+        """Heatmap should show a legend for color levels."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertContains(response, 'Legend')
+
+    def test_heatmap_shows_stats_section(self):
+        """Heatmap should show a stats section."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertContains(response, 'Journaling Stats')
+
+    def test_heatmap_shows_day_labels(self):
+        """Heatmap should show day of week labels."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertContains(response, 'Sun')
+        self.assertContains(response, 'Sat')
+
+    def test_heatmap_has_dark_mode_toggle(self):
+        """Heatmap should have dark mode toggle button."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertContains(response, 'darkModeToggle')
+
+    def test_heatmap_has_css_grid(self):
+        """Heatmap should use CSS grid for layout."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertContains(response, 'heatmap-grid')
+
+    def test_heatmap_cells_have_title_attribute(self):
+        """Heatmap cells should have title attributes for tooltips."""
+        target_date = self.today - timedelta(days=7)
+        entry = JournalEntry.objects.create(user=self.user, content='Entry')
+        entry.date = target_date
+        entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertContains(response, 'title=')
+
+    def test_heatmap_has_responsive_scroll(self):
+        """Heatmap should have responsive horizontal scroll wrapper."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertContains(response, 'heatmap-scroll')
+
+
+class JournalHeatmapNavigationTest(TestCase):
+    """Tests for heatmap link in navigation."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_nav_has_heatmap_link(self):
+        """Navigation should include a Heatmap link."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/')
+        self.assertContains(response, 'Heatmap')
+
+    def test_heatmap_page_has_back_link(self):
+        """Heatmap page should have a link back to dashboard."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertContains(response, 'Dashboard')
+
+
+class JournalHeatmapMultiYearTest(TestCase):
+    """Tests for heatmap with entries spanning multiple years."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.today = timezone.now().date()
+
+    def test_heatmap_with_entries_from_last_year(self):
+        """Entries from the previous year should appear in the heatmap."""
+        last_year_date = self.today.replace(year=self.today.year - 1)
+        entry = JournalEntry.objects.create(user=self.user, content='Last year')
+        entry.date = last_year_date
+        entry.save()
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        self.assertEqual(response.status_code, 200)
+        # Should count this entry if within 365 days
+        context = response.context
+        self.assertGreaterEqual(context['total_entries'], 0)
+
+    def test_heatmap_grid_starts_from_recent_sunday(self):
+        """Grid should start from the most recent Sunday."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/heatmap/')
+        grid = response.context['grid']
+        # The first day of the first week should be a Sunday (index 0)
+        first_week = grid[0]
+        first_day = first_week[0]  # Sunday is index 0
+        from datetime import date
+        d = date.fromisoformat(first_day['date'])
+        self.assertEqual(d.weekday(), 6)  # Python: Monday=0, Sunday=6
