@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Import Journals - My Journal</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</head>
+<body>
+<script>
+    function getCookie(name) {
+        var nameEQ = name + "=";
+        var ca = document.cookie.split(';');
+        for(var i=0;i < ca.length;i++) {
+            var c = ca[i];
+            while (c.charAt(0)==' ') c = c.substring(1,c.length);
+            if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length,c.length);
+        }
+        return null;
+    }
+
+    document.addEventListener('DOMContentLoaded', (event) => {
+        const htmlElement = document.documentElement;
+        const isDarkMode = getCookie('dark') === 'True';
+        if (isDarkMode) {
+            htmlElement.setAttribute('data-bs-theme', 'dark');
+        }
+    });
+</script>
+
+<div class="container mt-5">
+    {% include 'nav.html' %}
+    <h1 class="mb-4">Import Journals</h1>
+    <button id="darkModeToggle" class="btn btn-secondary mb-3"></button>
+
+    {% if errors %}
+    <div class="alert alert-danger">
+        <strong>Error:</strong>
+        <ul class="mb-0">
+            {% for error in errors %}
+            <li>{{ error }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    {% if imported or skipped %}
+    <div class="alert alert-success">
+        <h5>Import Summary</h5>
+        <p class="mb-1"><strong>{{ imported }}</strong> entries imported successfully.</p>
+        {% if skipped > 0 %}
+        <p class="mb-0"><strong>{{ skipped }}</strong> entries skipped (duplicates or errors).</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Upload File</h5>
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                <div class="mb-3">
+                    <label for="import_file" class="form-label">File</label>
+                    <input type="file" class="form-control" id="import_file" name="file" accept=".json,.md,.markdown,.txt" required>
+                    <div class="form-text">Supported formats: .json, .md, .markdown, .txt (max 10MB)</div>
+                </div>
+                <div class="mb-3">
+                    <label for="import_format" class="form-label">Format</label>
+                    <select class="form-select" id="import_format" name="format">
+                        <option value="json">JSON</option>
+                        <option value="markdown">Markdown</option>
+                        <option value="text">Plain Text</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Import</button>
+                <a href="{% url 'journals' %}" class="btn btn-secondary ms-2">Back to Journals</a>
+            </form>
+        </div>
+    </div>
+
+    <!-- Format Instructions -->
+    <div class="row">
+        <div class="col-md-4 mb-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">JSON Format</h5>
+                    <p class="card-text small">Import from a JSON array of journal entries. Matches the app's export format.</p>
+                    <pre class="bg-light p-2 small" style="max-height: 200px; overflow-y: auto;">[
+  {
+    "title": "My Entry",
+    "date": "2024-01-15",
+    "content": "Today was...",
+    "mood": "[\"happy\"]",
+    "reflections": "...",
+    "gratitude": "...",
+    "tags": ["work"]
+  }
+]</pre>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4 mb-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">Markdown Format</h5>
+                    <p class="card-text small">Import from markdown files with headers for title, date, and sections.</p>
+                    <pre class="bg-light p-2 small" style="max-height: 200px; overflow-y: auto;">## My Entry
+
+**Date:** 2024-01-15
+
+**Mood:** ["happy"]
+
+### Content
+
+Today was...
+
+### Reflections
+
+...
+
+**Tags:** work
+
+---</pre>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4 mb-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">Plain Text Format</h5>
+                    <p class="card-text small">Simple text with Title/Date headers and --- separators.</p>
+                    <pre class="bg-light p-2 small" style="max-height: 200px; overflow-y: auto;">Title: My Entry
+Date: 2024-01-15
+
+Today was...
+
+---
+
+Title: Another
+Date: 2024-01-16
+
+Another day...</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="mt-3">
+        <a href="{% url 'export_journals' %}?format=json" class="btn btn-outline-primary me-2">Export as JSON</a>
+        <a href="{% url 'export_journals' %}?format=markdown" class="btn btn-outline-primary">Export as Markdown</a>
+    </div>
+</div>
+
+<script>
+    function setCookie(name, value, days) {
+        var expires = "";
+        if (days) {
+            var date = new Date();
+            date.setTime(date.getTime() + (days*24*60*60*1000));
+            expires = "; expires=" + date.toUTCString();
+        }
+        document.cookie = name + "=" + (value || "")  + expires + "; path=/";
+    }
+
+    function getCookie(name) {
+        var nameEQ = name + "=";
+        var ca = document.cookie.split(';');
+        for(var i=0;i < ca.length;i++) {
+            var c = ca[i];
+            while (c.charAt(0)==' ') c = c.substring(1,c.length);
+            if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length,c.length);
+        }
+        return null;
+    }
+
+    document.addEventListener('DOMContentLoaded', (event) => {
+        const darkModeToggle = document.getElementById('darkModeToggle');
+        const isDarkMode = getCookie('dark') === 'True';
+        if (isDarkMode) {
+            darkModeToggle.innerText = '\u2600\ufe0f';
+            darkModeToggle.onclick = function() {
+                setCookie('dark', 'False', 365);
+                window.location.reload();
+            };
+        } else {
+            darkModeToggle.innerText = '\ud83c\udf15';
+            darkModeToggle.onclick = function() {
+                setCookie('dark', 'True', 365);
+                window.location.reload();
+            };
+        }
+    });
+</script>
+
+</body>
+</html>

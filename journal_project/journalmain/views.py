@@ -6,6 +6,7 @@ from django.conf import settings
 from django.db.models import Q, Count
 from .models import JournalEntry, Blurb, Report, Goal, Tag, JournalTemplate
 import json
+import re
 from .forms import JournalForm, AskJournalForm, GoalForm
 from datetime import datetime, timedelta
 from django.utils import timezone
@@ -1353,3 +1354,325 @@ def tag_merge(request, id):
         tag.delete()
         return HttpResponseRedirect('/tags/')
     return render(request, 'tag_merge.html', {'tag': tag, 'other_tags': other_tags})
+
+
+# ============================================================
+# Feature: Journal Data Import
+# ============================================================
+
+MAX_IMPORT_SIZE = 10 * 1024 * 1024  # 10MB
+
+DATE_FORMATS = [
+    '%Y-%m-%d',
+    '%m/%d/%Y',
+    '%d/%m/%Y',
+    '%Y/%m/%d',
+    '%m-%d-%Y',
+    '%d-%m-%Y',
+    '%B %d, %Y',
+    '%b %d, %Y',
+    '%Y-%m-%dT%H:%M:%S',
+]
+
+
+def parse_date(date_str):
+    """Try to parse a date string using multiple formats."""
+    if not date_str or not isinstance(date_str, str):
+        return None
+    date_str = date_str.strip()
+    for fmt in DATE_FORMATS:
+        try:
+            return datetime.strptime(date_str, fmt).date()
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def is_duplicate(user, title, date, content):
+    """Check if an entry with the same date+title+content already exists for this user."""
+    return JournalEntry.objects.filter(
+        user=user,
+        date=date,
+        title=title,
+        content=content,
+    ).exists()
+
+
+def assign_tags_to_entry(entry, user, tag_names):
+    """Assign tags to a journal entry, creating them if needed."""
+    if not tag_names:
+        return
+    for tag_name in tag_names:
+        tag_name = tag_name.strip().lower()
+        if tag_name:
+            tag, _ = Tag.objects.get_or_create(user=user, name=tag_name)
+            entry.tags.add(tag)
+
+
+def parse_json_import(file_content, user):
+    """Parse JSON import data and create journal entries."""
+    imported = 0
+    skipped = 0
+    errors = []
+
+    try:
+        data = json.loads(file_content)
+    except json.JSONDecodeError:
+        return 0, 0, ['Invalid JSON format. Please provide a valid JSON array.']
+
+    if not isinstance(data, list):
+        return 0, 0, ['JSON data must be an array of journal entries.']
+
+    for item in data:
+        if not isinstance(item, dict):
+            skipped += 1
+            continue
+
+        title = item.get('title', '')
+        date_str = item.get('date', '')
+        content = item.get('content', '')
+
+        # Skip entries with no content
+        if not content and not title:
+            skipped += 1
+            continue
+
+        date = parse_date(date_str) if date_str else timezone.now().date()
+        if date is None:
+            skipped += 1
+            errors.append(f'Skipped entry "{title}": invalid date format')
+            continue
+
+        # Check for duplicates
+        if is_duplicate(user, title, date, content):
+            skipped += 1
+            continue
+
+        try:
+            entry = JournalEntry.objects.create(
+                user=user,
+                title=title,
+                content=content,
+                mood=item.get('mood'),
+                reflections=item.get('reflections'),
+                gratitude=item.get('gratitude'),
+                bookmarked=item.get('bookmarked', False),
+            )
+            # Override auto_now_add date
+            entry.date = date
+            entry.save()
+
+            # Handle tags
+            tags = item.get('tags', [])
+            if isinstance(tags, list):
+                assign_tags_to_entry(entry, user, tags)
+
+            imported += 1
+        except Exception as e:
+            skipped += 1
+            errors.append(f'Error importing entry "{title}": {str(e)}')
+
+    return imported, skipped, errors
+
+
+def parse_markdown_import(file_content, user):
+    """Parse Markdown import data and create journal entries."""
+    imported = 0
+    skipped = 0
+    errors = []
+
+    content = file_content.strip()
+
+    # Split by --- separator (with surrounding newlines)
+    blocks = re.split(r'\n---\n', content)
+
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            continue
+
+        # Skip the top-level "# Journal Export" header block
+        if block.startswith('# Journal Export'):
+            # Remove the header line and any blank lines after it
+            block = re.sub(r'^# Journal Export[^\n]*\n*', '', block).strip()
+            if not block:
+                continue
+
+        # Parse entry fields
+        title = None
+        date = None
+        mood = None
+        reflections = None
+        gratitude = None
+        content_text = None
+        tags = []
+
+        # Extract title from ## header
+        title_match = re.search(r'^## (.+)$', block, re.MULTILINE)
+        if title_match:
+            title = title_match.group(1).strip()
+
+        # Extract date - handle **Date:** YYYY-MM-DD format
+        date_match = re.search(r'\*\*Date:\*\*\s*(.+)', block)
+        if date_match:
+            date_str = date_match.group(1).strip()
+            date = parse_date(date_str)
+
+        # Extract mood
+        mood_match = re.search(r'\*\*Mood:\*\*\s*(.+)', block)
+        if mood_match:
+            mood = mood_match.group(1).strip()
+
+        # Extract content (everything between ### Content and next ### or **Tags:** or end)
+        content_match = re.search(r'### Content\s*\n+(.*?)(?=\n### |\n\*\*Tags:|$)', block, re.DOTALL)
+        if content_match:
+            content_text = content_match.group(1).strip()
+
+        # Extract reflections
+        refl_match = re.search(r'### Reflections\s*\n+(.*?)(?=\n### |\n\*\*Tags:|$)', block, re.DOTALL)
+        if refl_match:
+            reflections = refl_match.group(1).strip()
+
+        # Extract gratitude
+        grat_match = re.search(r'### Gratitude\s*\n+(.*?)(?=\n### |\n\*\*Tags:|$)', block, re.DOTALL)
+        if grat_match:
+            gratitude = grat_match.group(1).strip()
+
+        # Extract tags
+        tags_match = re.search(r'\*\*Tags:\*\*\s*(.+)', block)
+        if tags_match:
+            tags = [t.strip() for t in tags_match.group(1).split(',') if t.strip()]
+
+        if not content_text and not title:
+            skipped += 1
+            continue
+
+        if date is None:
+            date = timezone.now().date()
+
+        # Check for duplicates
+        if is_duplicate(user, title or '', date, content_text or ''):
+            skipped += 1
+            continue
+
+        try:
+            entry = JournalEntry.objects.create(
+                user=user,
+                title=title or '',
+                content=content_text or '',
+                mood=mood,
+                reflections=reflections,
+                gratitude=gratitude,
+            )
+            # Override auto_now_add date
+            entry.date = date
+            entry.save()
+            assign_tags_to_entry(entry, user, tags)
+            imported += 1
+        except Exception as e:
+            skipped += 1
+            errors.append(f'Error importing entry "{title}": {str(e)}')
+
+    return imported, skipped, errors
+
+
+def parse_plaintext_import(file_content, user):
+    """Parse plain text import data and create journal entries."""
+    imported = 0
+    skipped = 0
+    errors = []
+
+    # Split by --- separator
+    blocks = re.split(r'\n---\n', file_content)
+
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            continue
+
+        lines = block.split('\n')
+        title = None
+        date = None
+        content_lines = []
+        in_header = True
+
+        for line in lines:
+            line_stripped = line.strip()
+            if in_header:
+                if line_stripped.startswith('Title:'):
+                    title = line_stripped[len('Title:'):].strip()
+                elif line_stripped.startswith('Date:'):
+                    date = parse_date(line_stripped[len('Date:'):].strip())
+                elif line_stripped == '':
+                    in_header = False
+                else:
+                    # Unknown header line, skip
+                    pass
+            else:
+                content_lines.append(line)
+
+        content_text = '\n'.join(content_lines).strip()
+
+        if not content_text and not title:
+            skipped += 1
+            continue
+
+        if date is None:
+            date = timezone.now().date()
+
+        # Check for duplicates
+        if is_duplicate(user, title or '', date, content_text):
+            skipped += 1
+            continue
+
+        try:
+            entry = JournalEntry.objects.create(
+                user=user,
+                title=title or '',
+                content=content_text,
+            )
+            # Override auto_now_add date
+            entry.date = date
+            entry.save()
+            imported += 1
+        except Exception as e:
+            skipped += 1
+            errors.append(f'Error importing entry "{title}": {str(e)}')
+
+    return imported, skipped, errors
+
+
+@login_required
+def import_journals(request):
+    """Import journal entries from JSON, Markdown, or Plain Text files."""
+    imported = 0
+    skipped = 0
+    errors = []
+
+    if request.method == 'POST':
+        import_format = request.POST.get('format', 'json')
+        uploaded_file = request.FILES.get('file')
+
+        if not uploaded_file:
+            errors = ['No file was uploaded.']
+        elif uploaded_file.size > MAX_IMPORT_SIZE:
+            errors = ['File is too large. Maximum size is 10MB.']
+        else:
+            file_content = uploaded_file.read().decode('utf-8', errors='replace')
+
+            if not file_content.strip():
+                errors = ['The uploaded file is empty.']
+            elif import_format == 'json':
+                imported, skipped, errors = parse_json_import(file_content, request.user)
+            elif import_format == 'markdown':
+                imported, skipped, errors = parse_markdown_import(file_content, request.user)
+            elif import_format == 'text':
+                imported, skipped, errors = parse_plaintext_import(file_content, request.user)
+            else:
+                errors = ['Unsupported import format.']
+
+    return render(request, 'journal_import.html', {
+        'imported': imported,
+        'skipped': skipped,
+        'errors': errors,
+    })

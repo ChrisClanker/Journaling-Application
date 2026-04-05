@@ -4736,3 +4736,582 @@ class JournalHeatmapMultiYearTest(TestCase):
         from datetime import date
         d = date.fromisoformat(first_day['date'])
         self.assertEqual(d.weekday(), 6)  # Python: Monday=0, Sunday=6
+
+
+# ============================================================
+# Tests for Journal Data Import Feature
+# ============================================================
+
+class ImportViewAccessTest(TestCase):
+    """Tests for import view access control."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_import_requires_login(self):
+        """Unauthenticated users should be redirected to login."""
+        response = self.client.get('/import/')
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/login/', response.url)
+
+    def test_import_get_returns_200(self):
+        """Authenticated users should see the import form."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/import/')
+        self.assertEqual(response.status_code, 200)
+
+    def test_import_page_has_title(self):
+        """Import page should have the correct title."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/import/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Import Journals')
+
+    def test_import_page_has_nav(self):
+        """Import page should include the navigation bar."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/import/')
+        self.assertContains(response, 'navbar')
+
+    def test_import_page_has_font(self):
+        """Import page should have consistent font."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/import/')
+        self.assertContains(response, "font-family")
+        self.assertContains(response, "Times New Roman")
+
+    def test_import_page_has_format_selector(self):
+        """Import page should have a format selector."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/import/')
+        self.assertContains(response, 'format')
+        self.assertContains(response, 'json')
+        self.assertContains(response, 'markdown')
+        self.assertContains(response, 'text')
+
+    def test_import_page_has_file_upload(self):
+        """Import page should have a file upload field."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/import/')
+        self.assertContains(response, 'file')
+        self.assertContains(response, 'Import')
+
+    def test_import_page_has_dark_mode_toggle(self):
+        """Import page should have dark mode toggle."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/import/')
+        self.assertContains(response, 'darkModeToggle')
+
+    def test_import_page_has_back_link(self):
+        """Import page should have a link back to journals."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/import/')
+        self.assertContains(response, '/journals/')
+
+
+class ImportJSONTest(TestCase):
+    """Tests for JSON import functionality."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.valid_json = json.dumps([
+            {
+                "title": "My Journal Entry",
+                "date": "2024-01-15",
+                "content": "Today was a great day...",
+                "mood": "[\"happy\", \"grateful\"]",
+                "reflections": "I learned that...",
+                "gratitude": "I'm thankful for...",
+                "tags": ["work", "personal"]
+            }
+        ])
+
+    def test_json_import_creates_entry(self):
+        """Valid JSON should create journal entries."""
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        response = self.client.post('/import/', {
+            'format': 'json',
+            'file': BytesIO(self.valid_json.encode('utf-8')),
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(JournalEntry.objects.filter(user=self.user).count(), 1)
+        entry = JournalEntry.objects.first()
+        self.assertEqual(entry.title, "My Journal Entry")
+        self.assertEqual(entry.content, "Today was a great day...")
+        self.assertEqual(str(entry.date), "2024-01-15")
+
+    def test_json_import_sets_all_fields(self):
+        """JSON import should set mood, reflections, gratitude."""
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        self.client.post('/import/', {
+            'format': 'json',
+            'file': BytesIO(self.valid_json.encode('utf-8')),
+        })
+        entry = JournalEntry.objects.first()
+        self.assertEqual(entry.mood, '["happy", "grateful"]')
+        self.assertEqual(entry.reflections, "I learned that...")
+        self.assertEqual(entry.gratitude, "I'm thankful for...")
+
+    def test_json_import_creates_tags(self):
+        """JSON import should create tags."""
+        from .models import Tag
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        self.client.post('/import/', {
+            'format': 'json',
+            'file': BytesIO(self.valid_json.encode('utf-8')),
+        })
+        entry = JournalEntry.objects.first()
+        self.assertEqual(entry.tags.count(), 2)
+        tag_names = [t.name for t in entry.tags.all()]
+        self.assertIn('work', tag_names)
+        self.assertIn('personal', tag_names)
+
+    def test_json_import_multiple_entries(self):
+        """JSON import should handle multiple entries."""
+        multi_json = json.dumps([
+            {"title": "Entry 1", "date": "2024-01-15", "content": "Content 1"},
+            {"title": "Entry 2", "date": "2024-01-16", "content": "Content 2"},
+            {"title": "Entry 3", "date": "2024-01-17", "content": "Content 3"},
+        ])
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        response = self.client.post('/import/', {
+            'format': 'json',
+            'file': BytesIO(multi_json.encode('utf-8')),
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(JournalEntry.objects.filter(user=self.user).count(), 3)
+
+    def test_json_import_duplicate_detection(self):
+        """Duplicate entries (same date+title+content) should be skipped."""
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        # Import the same data twice
+        self.client.post('/import/', {
+            'format': 'json',
+            'file': BytesIO(self.valid_json.encode('utf-8')),
+        })
+        self.assertEqual(JournalEntry.objects.filter(user=self.user).count(), 1)
+        # Import again
+        response = self.client.post('/import/', {
+            'format': 'json',
+            'file': BytesIO(self.valid_json.encode('utf-8')),
+        })
+        # Should still have only 1 entry (duplicate skipped)
+        self.assertEqual(JournalEntry.objects.filter(user=self.user).count(), 1)
+        # Response should show 1 skipped
+        self.assertContains(response, 'skipped')
+
+    def test_json_import_invalid_json(self):
+        """Invalid JSON should show an error."""
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        response = self.client.post('/import/', {
+            'format': 'json',
+            'file': BytesIO(b'not valid json {{{'),
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Error')
+
+    def test_json_import_partial_data(self):
+        """JSON entries with missing optional fields should still import."""
+        partial_json = json.dumps([
+            {"title": "Minimal Entry", "date": "2024-02-01", "content": "Minimal content"},
+        ])
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        response = self.client.post('/import/', {
+            'format': 'json',
+            'file': BytesIO(partial_json.encode('utf-8')),
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(JournalEntry.objects.filter(user=self.user).count(), 1)
+        entry = JournalEntry.objects.first()
+        self.assertEqual(entry.title, "Minimal Entry")
+        self.assertIsNone(entry.mood)
+        self.assertIsNone(entry.reflections)
+
+    def test_json_import_scoped_to_user(self):
+        """Imported entries should be scoped to the current user."""
+        other_user = User.objects.create_user(username='otheruser', password='testpass123')
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        self.client.post('/import/', {
+            'format': 'json',
+            'file': BytesIO(self.valid_json.encode('utf-8')),
+        })
+        entry = JournalEntry.objects.first()
+        self.assertEqual(entry.user, self.user)
+        # Other user should have no entries
+        self.assertEqual(JournalEntry.objects.filter(user=other_user).count(), 0)
+
+    def test_json_import_does_not_affect_other_users(self):
+        """Import should not affect other users' entries."""
+        other_user = User.objects.create_user(username='otheruser', password='testpass123')
+        other_entry = JournalEntry.objects.create(
+            user=other_user, content='Other entry', title='Other Entry',
+            date=timezone.now().date()
+        )
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        self.client.post('/import/', {
+            'format': 'json',
+            'file': BytesIO(self.valid_json.encode('utf-8')),
+        })
+        # Other user's entry should still exist
+        self.assertEqual(JournalEntry.objects.filter(user=other_user).count(), 1)
+        other_entry.refresh_from_db()
+        self.assertEqual(other_entry.title, 'Other Entry')
+
+    def test_json_import_results_summary(self):
+        """Import should show a summary of imported/skipped entries."""
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        response = self.client.post('/import/', {
+            'format': 'json',
+            'file': BytesIO(self.valid_json.encode('utf-8')),
+        })
+        self.assertContains(response, 'imported')
+        self.assertContains(response, '1')
+
+    def test_json_import_bookmarked_field(self):
+        """JSON import should handle bookmarked field."""
+        bookmarked_json = json.dumps([
+            {"title": "Bookmarked", "date": "2024-01-15", "content": "Important", "bookmarked": True},
+        ])
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        self.client.post('/import/', {
+            'format': 'json',
+            'file': BytesIO(bookmarked_json.encode('utf-8')),
+        })
+        entry = JournalEntry.objects.first()
+        self.assertTrue(entry.bookmarked)
+
+    def test_json_import_alternate_date_formats(self):
+        """JSON import should handle various date formats."""
+        alt_date_json = json.dumps([
+            {"title": "Slash Date", "date": "01/15/2024", "content": "Content"},
+        ])
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        response = self.client.post('/import/', {
+            'format': 'json',
+            'file': BytesIO(alt_date_json.encode('utf-8')),
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(JournalEntry.objects.filter(user=self.user).count(), 1)
+
+
+class ImportMarkdownTest(TestCase):
+    """Tests for Markdown import functionality."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.valid_markdown = """# Journal Export
+
+## My Journal Entry
+
+**Date:** 2024-01-15
+
+**Mood:** ["happy", "grateful"]
+
+### Content
+
+Today was a great day...
+
+### Reflections
+
+I learned that...
+
+### Gratitude
+
+I'm thankful for...
+
+**Tags:** work, personal
+
+---
+
+## Another Entry
+
+**Date:** 2024-01-16
+
+### Content
+
+Another day...
+"""
+
+    def test_markdown_import_creates_entries(self):
+        """Valid markdown should create journal entries."""
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        response = self.client.post('/import/', {
+            'format': 'markdown',
+            'file': BytesIO(self.valid_markdown.encode('utf-8')),
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(JournalEntry.objects.filter(user=self.user).count(), 2)
+
+    def test_markdown_import_first_entry_fields(self):
+        """First markdown entry should have all fields."""
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        self.client.post('/import/', {
+            'format': 'markdown',
+            'file': BytesIO(self.valid_markdown.encode('utf-8')),
+        })
+        entry = JournalEntry.objects.filter(user=self.user, title="My Journal Entry").first()
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry.content, "Today was a great day...")
+        self.assertEqual(str(entry.date), "2024-01-15")
+        self.assertEqual(entry.reflections, "I learned that...")
+        self.assertEqual(entry.gratitude, "I'm thankful for...")
+
+    def test_markdown_import_second_entry(self):
+        """Second markdown entry should be created."""
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        self.client.post('/import/', {
+            'format': 'markdown',
+            'file': BytesIO(self.valid_markdown.encode('utf-8')),
+        })
+        entry = JournalEntry.objects.filter(user=self.user, title="Another Entry").first()
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry.content, "Another day...")
+        self.assertEqual(str(entry.date), "2024-01-16")
+
+    def test_markdown_import_partial_data(self):
+        """Markdown entries with missing fields should still import."""
+        partial_md = """## Minimal Entry
+
+**Date:** 2024-03-01
+
+### Content
+
+Just content here.
+"""
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        response = self.client.post('/import/', {
+            'format': 'markdown',
+            'file': BytesIO(partial_md.encode('utf-8')),
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(JournalEntry.objects.filter(user=self.user).count(), 1)
+        entry = JournalEntry.objects.first()
+        self.assertEqual(entry.title, "Minimal Entry")
+        self.assertIsNone(entry.mood)
+
+    def test_markdown_import_scoped_to_user(self):
+        """Markdown imported entries should be scoped to current user."""
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        self.client.post('/import/', {
+            'format': 'markdown',
+            'file': BytesIO(self.valid_markdown.encode('utf-8')),
+        })
+        for entry in JournalEntry.objects.filter(user=self.user):
+            self.assertEqual(entry.user, self.user)
+
+
+class ImportPlainTextTest(TestCase):
+    """Tests for Plain Text import functionality."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.valid_text = """Title: My Journal Entry
+Date: 2024-01-15
+
+Today was a great day...
+
+---
+
+Title: Another Entry
+Date: 2024-01-16
+
+Another day...
+"""
+
+    def test_plaintext_import_creates_entries(self):
+        """Valid plain text should create journal entries."""
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        response = self.client.post('/import/', {
+            'format': 'text',
+            'file': BytesIO(self.valid_text.encode('utf-8')),
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(JournalEntry.objects.filter(user=self.user).count(), 2)
+
+    def test_plaintext_import_first_entry(self):
+        """First plain text entry should have correct fields."""
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        self.client.post('/import/', {
+            'format': 'text',
+            'file': BytesIO(self.valid_text.encode('utf-8')),
+        })
+        entry = JournalEntry.objects.filter(user=self.user, title="My Journal Entry").first()
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry.content, "Today was a great day...")
+        self.assertEqual(str(entry.date), "2024-01-15")
+
+    def test_plaintext_import_second_entry(self):
+        """Second plain text entry should be created."""
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        self.client.post('/import/', {
+            'format': 'text',
+            'file': BytesIO(self.valid_text.encode('utf-8')),
+        })
+        entry = JournalEntry.objects.filter(user=self.user, title="Another Entry").first()
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry.content, "Another day...")
+        self.assertEqual(str(entry.date), "2024-01-16")
+
+    def test_plaintext_import_separator(self):
+        """Plain text entries should be split by --- separator."""
+        text_with_separator = """Title: First
+Date: 2024-01-01
+
+First content.
+---
+Title: Second
+Date: 2024-01-02
+
+Second content.
+---
+Title: Third
+Date: 2024-01-03
+
+Third content.
+"""
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        self.client.post('/import/', {
+            'format': 'text',
+            'file': BytesIO(text_with_separator.encode('utf-8')),
+        })
+        self.assertEqual(JournalEntry.objects.filter(user=self.user).count(), 3)
+
+    def test_plaintext_import_scoped_to_user(self):
+        """Plain text imported entries should be scoped to current user."""
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        self.client.post('/import/', {
+            'format': 'text',
+            'file': BytesIO(self.valid_text.encode('utf-8')),
+        })
+        for entry in JournalEntry.objects.filter(user=self.user):
+            self.assertEqual(entry.user, self.user)
+
+    def test_plaintext_import_no_file_extension(self):
+        """Plain text import should work regardless of file extension."""
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        response = self.client.post('/import/', {
+            'format': 'text',
+            'file': BytesIO(self.valid_text.encode('utf-8')),
+        })
+        self.assertEqual(response.status_code, 200)
+
+
+class ImportEdgeCasesTest(TestCase):
+    """Tests for import edge cases."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_import_no_file(self):
+        """Submitting without a file should show an error."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post('/import/', {'format': 'json'})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Error')
+
+    def test_import_empty_file(self):
+        """Submitting an empty file should show an error."""
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        response = self.client.post('/import/', {
+            'format': 'json',
+            'file': BytesIO(b''),
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Error')
+
+    def test_import_wrong_format_for_file(self):
+        """Importing JSON as markdown should handle gracefully."""
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        valid_json = json.dumps([{"title": "Test", "date": "2024-01-15", "content": "Content"}])
+        response = self.client.post('/import/', {
+            'format': 'markdown',
+            'file': BytesIO(valid_json.encode('utf-8')),
+        })
+        # Should not crash - may or may not create entries depending on parsing
+        self.assertEqual(response.status_code, 200)
+
+    def test_import_json_array_with_empty_entries(self):
+        """JSON array with empty objects should be handled."""
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        json_data = json.dumps([{}, {"title": "Valid", "date": "2024-01-15", "content": "Content"}])
+        response = self.client.post('/import/', {
+            'format': 'json',
+            'file': BytesIO(json_data.encode('utf-8')),
+        })
+        self.assertEqual(response.status_code, 200)
+        # Empty entry should be skipped (no content), valid one should be created
+        self.assertEqual(JournalEntry.objects.filter(user=self.user).count(), 1)
+
+    def test_import_json_not_array(self):
+        """JSON that is not an array should show an error."""
+        self.client.login(username='testuser', password='testpass123')
+        from io import BytesIO
+        response = self.client.post('/import/', {
+            'format': 'json',
+            'file': BytesIO(b'{"key": "value"}'),
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Error')
+
+
+class ImportNavigationTest(TestCase):
+    """Tests for import link in navigation."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_nav_has_import_link(self):
+        """Navigation should include an Import link."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/')
+        self.assertContains(response, 'Import')
+
+    def test_nav_import_link_points_to_correct_url(self):
+        """Import link should point to /import/."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/')
+        self.assertContains(response, '/import/')
+
+    def test_nav_has_export_link(self):
+        """Navigation should still include an Export link."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/')
+        self.assertContains(response, 'Export')
+
+    def test_import_page_has_dark_mode(self):
+        """Import page should support dark mode rendering."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/import/')
+        self.assertContains(response, 'data-bs-theme')

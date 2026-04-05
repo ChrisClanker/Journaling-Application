@@ -24,6 +24,7 @@ urlpatterns = [
     path('tags/', views.tag_list, name='tag_list'),
     path('tags/<int:id>/', views.tag_detail, name='tag_detail'),
     path('export/', views.export_journals, name='export_journals'),
+    path('import/', views.import_journals, name='import_journals'),
     path('streaks/', views.streak_detail, name='streak_detail'),
     path('profile/', views.profile, name='profile'),
     path('profile/password-change/', PasswordChangeView.as_view(
