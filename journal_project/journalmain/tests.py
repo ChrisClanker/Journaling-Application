@@ -4,7 +4,7 @@ from django.urls import reverse
 from django.utils import timezone
 from datetime import timedelta
 import json
-from .models import JournalEntry, Goal, Blurb, Report, JournalTemplate
+from .models import JournalEntry, Goal, Blurb, Report, JournalTemplate, JournalFeedback
 from .forms import JournalForm, AskJournalForm, GoalForm
 
 
@@ -5315,3 +5315,532 @@ class ImportNavigationTest(TestCase):
         self.client.login(username='testuser', password='testpass123')
         response = self.client.get('/import/')
         self.assertContains(response, 'data-bs-theme')
+
+
+# ============================================================
+# Tests for Journal Entry Feedback / AI Suggestions Feature
+# ============================================================
+
+class JournalFeedbackModelTest(TestCase):
+    """Tests for the JournalFeedback model."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.entry = JournalEntry.objects.create(
+            user=self.user,
+            content='Test content',
+            title='Test Entry',
+            mood='["happy"]',
+            reflections='Some reflections',
+            gratitude='Grateful for today'
+        )
+
+    def test_create_feedback(self):
+        """Should be able to create a JournalFeedback linked to an entry."""
+        feedback = JournalFeedback.objects.create(
+            entry=self.entry,
+            suggestions='Try to continue the good work tomorrow.',
+            tone='encouraging',
+        )
+        self.assertEqual(feedback.entry, self.entry)
+        self.assertEqual(feedback.suggestions, 'Try to continue the good work tomorrow.')
+        self.assertEqual(feedback.tone, 'encouraging')
+        self.assertIsNotNone(feedback.created_at)
+
+    def test_feedback_str(self):
+        """String representation should be useful."""
+        feedback = JournalFeedback.objects.create(
+            entry=self.entry,
+            suggestions='Some suggestions',
+            tone='reflective',
+        )
+        self.assertIn('Feedback', str(feedback))
+
+    def test_feedback_one_to_one(self):
+        """Each entry can only have one feedback record."""
+        JournalFeedback.objects.create(
+            entry=self.entry,
+            suggestions='First feedback',
+            tone='encouraging',
+        )
+        with self.assertRaises(Exception):
+            JournalFeedback.objects.create(
+                entry=self.entry,
+                suggestions='Second feedback',
+                tone='reflective',
+            )
+
+
+class JournalFeedbackViewTest(TestCase):
+    """Tests for the journal_feedback view."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.entry = JournalEntry.objects.create(
+            user=self.user,
+            content='Test content',
+            title='Test Entry',
+            mood='["happy"]',
+        )
+
+    def test_feedback_requires_login(self):
+        """Unauthenticated users should be redirected."""
+        response = self.client.get(f'/feedback/{self.entry.id}/')
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/login/', response.url)
+
+    def test_feedback_returns_200_for_authenticated(self):
+        """Authenticated users should get 200."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{self.entry.id}/')
+        self.assertEqual(response.status_code, 200)
+
+    def test_feedback_not_found(self):
+        """Non-existent entry should return 404."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get('/feedback/99999/')
+        self.assertEqual(response.status_code, 404)
+
+    def test_cannot_view_others_feedback(self):
+        """Users cannot view feedback for another user's entry."""
+        other_user = User.objects.create_user(username='other', password='testpass123')
+        other_entry = JournalEntry.objects.create(user=other_user, content='Other')
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{other_entry.id}/')
+        self.assertEqual(response.status_code, 404)
+
+    def test_feedback_shows_entry_title(self):
+        """Feedback page should display the journal entry title."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{self.entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Test Entry')
+
+    def test_feedback_shows_entry_date(self):
+        """Feedback page should display the journal entry date."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{self.entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        # Date is rendered via Django template date filter (e.g., "April 5, 2026")
+        self.assertContains(response, str(self.entry.date.year))
+
+    def test_feedback_shows_back_to_journals_link(self):
+        """Feedback page should have a back to journals link."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{self.entry.id}/')
+        self.assertContains(response, '/journals/')
+
+    def test_feedback_shows_back_to_entry_link(self):
+        """Feedback page should have a back to entry link."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{self.entry.id}/')
+        self.assertContains(response, f'/details/{self.entry.id}/')
+
+    def test_feedback_has_dark_mode_toggle(self):
+        """Feedback page should support dark mode."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{self.entry.id}/')
+        self.assertContains(response, 'darkModeToggle')
+
+    def test_feedback_has_nav(self):
+        """Feedback page should include the navigation bar."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{self.entry.id}/')
+        self.assertContains(response, 'navbar')
+
+    def test_feedback_has_font(self):
+        """Feedback page should have consistent font."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{self.entry.id}/')
+        self.assertContains(response, "font-family")
+        self.assertContains(response, "Times New Roman")
+
+
+class JournalFeedbackGenerationNonAITest(TestCase):
+    """Tests for rule-based feedback generation when USE_AI=False."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_feedback_generates_for_sad_mood(self):
+        """Sad mood should generate self-care suggestion."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Feeling down today', mood='["sad"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'reaching out')
+
+    def test_feedback_generates_for_happy_mood(self):
+        """Happy mood should generate positive momentum suggestion."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Great day!', mood='["happy"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'great place')
+
+    def test_feedback_generates_for_angry_mood(self):
+        """Angry mood should generate physical activity suggestion."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='So frustrated!', mood='["angry"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'physical activity')
+
+    def test_feedback_generates_for_anxious_mood(self):
+        """Anxious mood should generate worry-management suggestion."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Very worried', mood='["anxious"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'writing down')
+
+    def test_feedback_generates_for_calm_mood(self):
+        """Calm mood should generate planning suggestion."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Feeling peaceful', mood='["calm"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'good time for planning')
+
+    def test_feedback_generates_default_for_unknown_mood(self):
+        """Unknown mood should generate default suggestion."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Just a normal day', mood='["neutral"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'check in with yourself')
+
+    def test_feedback_generates_for_empty_mood(self):
+        """No mood should generate default suggestion."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Just a normal day', mood=None
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'check in with yourself')
+
+    def test_feedback_generates_for_disappointed_mood(self):
+        """Disappointed mood should generate self-care suggestion."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Let down', mood='["disappointed"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'reaching out')
+
+    def test_feedback_generates_for_grateful_mood(self):
+        """Grateful mood should generate positive momentum suggestion."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Thankful', mood='["grateful"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'great place')
+
+    def test_feedback_generates_for_frustrated_mood(self):
+        """Frustrated mood should generate physical activity suggestion."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Ugh', mood='["frustrated"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'physical activity')
+
+    def test_feedback_generates_for_worried_mood(self):
+        """Worried mood should generate worry-management suggestion."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Can\'t stop thinking about it', mood='["worried"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'writing down')
+
+    def test_feedback_generates_for_hopeful_mood(self):
+        """Hopeful mood should generate planning suggestion."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Feeling optimistic', mood='["hopeful"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'good time for planning')
+
+    def test_feedback_generates_for_excited_mood(self):
+        """Excited mood should generate positive momentum suggestion."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Thrilled!', mood='["excited"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'great place')
+
+    def test_feedback_generates_for_proud_mood(self):
+        """Proud mood should generate positive momentum suggestion."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Did it!', mood='["proud"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'great place')
+
+    def test_feedback_generates_for_envious_mood(self):
+        """Envious mood should generate physical activity suggestion."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Jealous of others', mood='["envious"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'physical activity')
+
+    def test_feedback_generates_for_afraid_mood(self):
+        """Afraid mood should generate worry-management suggestion."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Scared', mood='["afraid"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'writing down')
+
+    def test_feedback_generates_for_relieved_mood(self):
+        """Relieved mood should generate planning suggestion."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='What a relief', mood='["relieved"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'good time for planning')
+
+    def test_feedback_generates_for_ashamed_mood(self):
+        """Ashamed mood should generate self-care suggestion."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Embarrassed', mood='["ashamed"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'reaching out')
+
+
+class JournalFeedbackDatabaseTest(TestCase):
+    """Tests for feedback persistence in the database."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_feedback_is_saved_to_database(self):
+        """Viewing feedback should save it to the database."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Test', mood='["happy"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(JournalFeedback.objects.count(), 1)
+        feedback = JournalFeedback.objects.first()
+        self.assertEqual(feedback.entry, entry)
+        self.assertIsNotNone(feedback.suggestions)
+        self.assertIsNotNone(feedback.tone)
+
+    def test_feedback_is_linked_to_correct_entry(self):
+        """Feedback should be linked to the correct journal entry."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Test', mood='["sad"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        self.client.get(f'/feedback/{entry.id}/')
+        feedback = JournalFeedback.objects.first()
+        self.assertEqual(feedback.entry.id, entry.id)
+
+    def test_feedback_is_scoped_to_current_user(self):
+        """Feedback should only be created for the current user's entries."""
+        other_user = User.objects.create_user(username='other', password='testpass123')
+        entry = JournalEntry.objects.create(
+            user=self.user, content='My entry', mood='["happy"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(JournalFeedback.objects.count(), 1)
+        feedback = JournalFeedback.objects.first()
+        self.assertEqual(feedback.entry.user, self.user)
+
+    def test_feedback_not_regenerated_if_exists(self):
+        """Existing feedback should be shown without regenerating."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Test', mood='["happy"]'
+        )
+        original_feedback = JournalFeedback.objects.create(
+            entry=entry,
+            suggestions='Original suggestion',
+            tone='encouraging',
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertContains(response, 'Original suggestion')
+        # Should not create a duplicate
+        self.assertEqual(JournalFeedback.objects.count(), 1)
+
+
+class JournalCreateRedirectsToFeedbackTest(TestCase):
+    """Tests that journal_create redirects to feedback page after submission."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_journal_create_redirects_to_feedback(self):
+        """After creating a journal entry, user should be redirected to feedback."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post('/journals/create.html', {
+            'content': 'New journal entry',
+            'reflections': 'Some reflections',
+            'gratitude': 'Grateful for today'
+        })
+        self.assertEqual(response.status_code, 302)
+        # Should redirect to feedback page, not journals
+        entry = JournalEntry.objects.get(user=self.user)
+        self.assertIn(f'/feedback/{entry.id}/', response.url)
+
+    def test_feedback_created_on_redirect(self):
+        """Feedback should be created when redirected from journal creation."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.post('/journals/create.html', {
+            'content': 'New journal entry',
+            'reflections': 'Some reflections',
+            'gratitude': 'Grateful for today'
+        })
+        self.assertEqual(response.status_code, 302)
+        entry = JournalEntry.objects.get(user=self.user)
+        # Follow the redirect to the feedback page
+        response = self.client.get(response.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(JournalFeedback.objects.filter(entry=entry).count(), 1)
+
+
+class JournalDetailFeedbackLinkTest(TestCase):
+    """Tests for feedback link on journal detail page."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.entry = JournalEntry.objects.create(
+            user=self.user, content='Test content', title='Test Entry'
+        )
+
+    def test_detail_shows_feedback_link_when_feedback_exists(self):
+        """When feedback exists, detail page should show a link to it."""
+        JournalFeedback.objects.create(
+            entry=self.entry,
+            suggestions='Try something new tomorrow.',
+            tone='encouraging',
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/details/{self.entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '/feedback/')
+        self.assertContains(response, 'Feedback')
+
+    def test_detail_shows_feedback_link_text(self):
+        """When feedback exists, detail page should show feedback/suggestions text."""
+        JournalFeedback.objects.create(
+            entry=self.entry,
+            suggestions='Try something new tomorrow.',
+            tone='encouraging',
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/details/{self.entry.id}/')
+        self.assertContains(response, 'Suggestions')
+
+    def test_detail_no_feedback_link_when_no_feedback(self):
+        """When no feedback exists, detail page should not show feedback link."""
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/details/{self.entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, '/feedback/')
+
+
+class JournalFeedbackToneBadgeTest(TestCase):
+    """Tests for tone badge display on feedback page."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_feedback_shows_tone_badge_encouraging(self):
+        """Feedback page should show tone badge for encouraging tone."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Test', mood='["happy"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertContains(response, 'badge')
+
+    def test_feedback_shows_suggestions_in_card(self):
+        """Feedback suggestions should be displayed in a card."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Test', mood='["happy"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertContains(response, 'card')
+
+
+class JournalFeedbackEmptyContentTest(TestCase):
+    """Tests for feedback generation with empty or minimal content."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+
+    def test_feedback_with_empty_content(self):
+        """Feedback should work with empty journal content."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='', mood=None
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'check in with yourself')
+
+    def test_feedback_with_only_content_no_mood(self):
+        """Feedback should work with content but no mood."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Just writing', mood=None
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(response.status_code, 200)
+
+    def test_feedback_with_multiple_moods(self):
+        """Feedback should handle multiple moods correctly."""
+        entry = JournalEntry.objects.create(
+            user=self.user, content='Mixed feelings', mood='["happy", "worried"]'
+        )
+        self.client.login(username='testuser', password='testpass123')
+        response = self.client.get(f'/feedback/{entry.id}/')
+        self.assertEqual(response.status_code, 200)
+        # First mood in list is "happy" which maps to positive momentum
+        self.assertContains(response, 'great place')

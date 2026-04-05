@@ -15,6 +15,7 @@ urlpatterns = [
     path('details/<int:id>/edit/', views.journal_edit, name='journal_edit'),
     path('details/<int:id>/delete/', views.journal_delete, name='journal_delete'),
     path('details/<int:id>/bookmark/', views.journal_toggle_bookmark, name='journal_toggle_bookmark'),
+    path('feedback/<int:id>/', views.journal_feedback, name='journal_feedback'),
     path('goals/', views.goals, name='goals'),
     path('goals/create.html', views.goal_create, name='goal_create'),
     path('goals/<int:id>/', views.goal_detail, name='goal_detail'),

@@ -86,6 +86,26 @@
         <p>{{ entry.gratitude }}</p>
 
         <hr>
+        {% if entry.feedback %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <a href="{% url 'journal_feedback' entry.id %}" class="text-decoration-none">
+                        &#128161; View Feedback &amp; Suggestions
+                    </a>
+                </h5>
+                <p class="card-text text-muted mb-0">
+                    Personalized suggestions based on this entry.
+                    <span class="badge
+                        {% if entry.feedback.tone == 'encouraging' %}bg-success
+                        {% elif entry.feedback.tone == 'action-oriented' %}bg-primary
+                        {% else %}bg-info{% endif %}">
+                        {{ entry.feedback.tone|title }}
+                    </span>
+                </p>
+            </div>
+        </div>
+        {% endif %}
         <p class="text-muted">Created at: {{ entry.created_at }}</p>
         <p class="text-muted">Last updated: {{ entry.updated_at }}</p>
 

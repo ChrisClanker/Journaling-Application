@@ -116,6 +116,20 @@ class JournalEntry(models.Model):
         verbose_name_plural = "Journal Entries"
 
 
+class JournalFeedback(models.Model):
+    """AI or rule-based suggestions for a journal entry."""
+    entry = models.OneToOneField(JournalEntry, on_delete=models.CASCADE, related_name='feedback')
+    suggestions = models.TextField()
+    tone = models.CharField(max_length=50, default='reflective')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Feedback for {self.entry}"
+
+    class Meta:
+        verbose_name_plural = "Journal Feedback"
+
+
 class JournalTemplate(models.Model):
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
