@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+
+# Virtual environment
+venv/
+
+# Database
+*.sqlite3
+
+# Environment files
+.env
+
+# Django
+*.log
+staticfiles/
+
+# Issues (user feedback - not tracked in git)
+issues/

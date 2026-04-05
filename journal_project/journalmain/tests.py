@@ -4205,3 +4205,86 @@ class NavigationPhase2Features7to10Test(TestCase):
         self.client.login(username='testuser', password='testpass123')
         response = self.client.get(f'/tags/{tag.id}/merge/')
         self.assertContains(response, 'navbar')
+
+
+# ============================================================
+# Tests for Font Consistency
+# ============================================================
+
+class FontConsistencyTest(TestCase):
+    """Ensure font-family is consistently applied across all templates."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.client.login(username='testuser', password='testpass123')
+
+    def test_dashboard_has_font(self):
+        response = self.client.get('/')
+        self.assertContains(response, "font-family")
+        self.assertContains(response, "Times New Roman")
+
+    def test_journals_has_font(self):
+        response = self.client.get('/journals/')
+        self.assertContains(response, "font-family")
+        self.assertContains(response, "Times New Roman")
+
+    def test_goals_has_font(self):
+        response = self.client.get('/goals/')
+        self.assertContains(response, "font-family")
+        self.assertContains(response, "Times New Roman")
+
+    def test_mood_calendar_has_font(self):
+        response = self.client.get('/mood-calendar/')
+        self.assertContains(response, "font-family")
+        self.assertContains(response, "Times New Roman")
+
+    def test_mood_trends_has_font(self):
+        response = self.client.get('/mood-trends/')
+        self.assertContains(response, "font-family")
+        self.assertContains(response, "Times New Roman")
+
+    def test_timeline_has_font(self):
+        response = self.client.get('/timeline/')
+        self.assertContains(response, "font-family")
+        self.assertContains(response, "Times New Roman")
+
+    def test_on_this_day_has_font(self):
+        response = self.client.get('/on-this-day/')
+        self.assertContains(response, "font-family")
+        self.assertContains(response, "Times New Roman")
+
+    def test_profile_has_font(self):
+        response = self.client.get('/profile/')
+        self.assertContains(response, "font-family")
+        self.assertContains(response, "Times New Roman")
+
+    def test_streaks_has_font(self):
+        response = self.client.get('/streaks/')
+        self.assertContains(response, "font-family")
+        self.assertContains(response, "Times New Roman")
+
+    def test_tags_has_font(self):
+        response = self.client.get('/tags/')
+        self.assertContains(response, "font-family")
+        self.assertContains(response, "Times New Roman")
+
+    def test_reports_has_font(self):
+        response = self.client.get('/reports/')
+        self.assertContains(response, "font-family")
+        self.assertContains(response, "Times New Roman")
+
+    def test_monthly_reports_has_font(self):
+        response = self.client.get('/reports/monthly/')
+        self.assertContains(response, "font-family")
+        self.assertContains(response, "Times New Roman")
+
+    def test_annual_review_has_font(self):
+        response = self.client.get('/reports/annual/')
+        self.assertContains(response, "font-family")
+        self.assertContains(response, "Times New Roman")
+
+    def test_templates_has_font(self):
+        response = self.client.get('/templates/')
+        self.assertContains(response, "font-family")
+        self.assertContains(response, "Times New Roman")

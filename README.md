@@ -9,13 +9,58 @@ This app is trying to solve the following problems:
 
 ## Future Development
 When I'm ready for the next iteration of this project, I'm hoping to incorporate the following:
-* A goals journal. My hope is that the user should have monthly goals, yearly goals, and tri-yearly goals. If you write a journal, AI should scan the journal for references to goals and then link them.
 * Feedback. I think it'd be interesting if after your journal is written, the AI gives you some suggestions for things to do the next day.
-* Better sentiment analysis.
-* Trends. It'd be interesting to see the AI sus out things that you journaled about and track how those topics either faded or didn't fade over time.
+* Better sentiment analysis and sentiment-over-time graphs.
+* Mobile-responsive templates for phones and tablets.
+* Data import from other platforms (Day One, plain text).
+* PWA support for offline journaling.
+
+**Already implemented:** Goals journal with AI/manual linking ✅, Mood calendar and trends ✅, Annual reviews ✅, Tag system ✅, Export ✅, Streaks ✅, Templates ✅, and much more. See PLAN.md for the full roadmap.
 
 ## Current Features
-Right now, the journal app does a few things:
+Right now, the journal app does a lot more than when it started:
+
+### Journaling
+* **Create journals** with optional templates (Daily Reflection, Gratitude Journal, Weekly Review, Goal Check-in)
+* **View past journals** in a table, timeline, or filtered by search, mood, date range, or tags
+* **Edit and delete** journals
+* **Bookmark** important entries for quick access
+* **Link journals to goals** (automatic with AI, manual without)
+* **Word count, character count, and reading time** displayed per entry
+* **Draft autosave** — your work is saved to the browser if you get interrupted
+
+### Insights & Analytics
+* **Dashboard** with stats: total entries, current/longest streak, most common mood, writing volume
+* **Mood Calendar** — a heatmap showing your mood over time
+* **Mood Trends** — weekly mood frequency bar charts
+* **On This Day** — re-read entries from the same date in previous years
+* **Streak tracking** — current streak, longest streak, and all historical streaks
+
+### Goals
+* **Set goals** with titles, descriptions, rationale, timeframes (1m/6m/1y/5y), and parent goals
+* **Track progress** with a 0-100% progress bar
+* **Link journals to goals** to see which entries relate to which goals
+
+### Organization
+* **Tags** — create, edit, merge, and delete tags to categorize journals
+* **Search & filter** — full-text search across content, reflections, and gratitude
+* **Export** — download all journals as JSON or Markdown
+
+### Reports
+* **Weekly summaries** — AI or text-based review of your week
+* **Monthly reports** — deeper monthly analysis with writing stats and mood breakdowns
+* **Annual reviews** — year-in-review with monthly breakdowns, top moods, tags, and streaks
+* **Ask a question** — query your journals with AI (when USE_AI=True)
+
+### User Experience
+* **Profile management** with password change
+* **Dark mode** toggle
+* **Responsive navigation bar** across all pages
+* **Pagination** on all listing views
+
+> **Note:** Screenshots below are from the original version of the app. The UI has evolved significantly since these were taken. Run the app locally with `./start.sh` to see the current interface.
+
+### Original Screenshots (Outdated)
 * You can create a journal
 ![image](https://github.com/user-attachments/assets/a7c55860-12fe-4b95-9d73-4abe3de6456a)
 * You can view past journals
